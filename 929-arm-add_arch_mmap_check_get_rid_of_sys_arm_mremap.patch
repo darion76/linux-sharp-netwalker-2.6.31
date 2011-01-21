@@ -1,0 +1,70 @@
+X-Git-Url: http://git.kernel.org/?p=linux%2Fkernel%2Fgit%2Ftorvalds%2Flinux-2.6.git;a=blobdiff_plain;f=arch%2Farm%2Fkernel%2Fsys_arm.c;h=3b897444a9bd48e1b9cdd54d19f9dc80cdd8e516;hp=78ecaac652069217b965eca0cd336b40858698b2;hb=2ea1d13f64efdf49319e86c87d9ba38c30902782;hpb=c4caa778157dbbf04116f0ac2111e389b5cd7a29
+
+diff --git a/arch/arm/kernel/sys_arm.c b/arch/arm/kernel/sys_arm.c
+index 78ecaac..3b89744 100644
+--- a/arch/arm/kernel/sys_arm.c
++++ b/arch/arm/kernel/sys_arm.c
+@@ -28,10 +28,6 @@
+ #include <linux/ipc.h>
+ #include <linux/uaccess.h>
+ 
+-extern unsigned long do_mremap(unsigned long addr, unsigned long old_len,
+-			       unsigned long new_len, unsigned long flags,
+-			       unsigned long new_addr);
+-
+ /* common code for old and new mmaps */
+ inline long do_mmap2(
+ 	unsigned long addr, unsigned long len,
+@@ -43,9 +39,6 @@ inline long do_mmap2(
+ 
+ 	flags &= ~(MAP_EXECUTABLE | MAP_DENYWRITE);
+ 
+-	if (flags & MAP_FIXED && addr < FIRST_USER_ADDRESS)
+-		goto out;
+-
+ 	error = -EBADF;
+ 	if (!(flags & MAP_ANONYMOUS)) {
+ 		file = fget(fd);
+@@ -89,24 +82,6 @@ out:
+ 	return error;
+ }
+ 
+-asmlinkage unsigned long
+-sys_arm_mremap(unsigned long addr, unsigned long old_len,
+-	       unsigned long new_len, unsigned long flags,
+-	       unsigned long new_addr)
+-{
+-	unsigned long ret = -EINVAL;
+-
+-	if (flags & MREMAP_FIXED && new_addr < FIRST_USER_ADDRESS)
+-		goto out;
+-
+-	down_write(&current->mm->mmap_sem);
+-	ret = do_mremap(addr, old_len, new_len, flags, new_addr);
+-	up_write(&current->mm->mmap_sem);
+-
+-out:
+-	return ret;
+-}
+-
+ /*
+  * Perform the select(nd, in, out, ex, tv) and mmap() system
+  * calls.
+--- a/arch/arm/include/asm/mman.h
++++ b/arch/arm/include/asm/mman.h
+@@ -1 +1,4 @@
+ #include <asm-generic/mman.h>
++
++#define arch_mmap_check(addr, len, flags) \
++       (((flags) & MAP_FIXED && (addr) < FIRST_USER_ADDRESS) ? -EINVAL : 0)
+--- linux-2.6.31-ER1-efikamx.orig/arch/arm/kernel/calls.S	2009-12-12 15:45:16.000000000 -0600
++++ linux-2.6.31-ER1-efikamx/arch/arm/kernel/calls.S	2010-01-24 16:18:53.000000000 -0600
+@@ -172,7 +172,7 @@
+ /* 160 */	CALL(sys_sched_get_priority_min)
+ 		CALL(sys_sched_rr_get_interval)
+ 		CALL(sys_nanosleep)
+-		CALL(sys_arm_mremap)
++		CALL(sys_mremap)
+ 		CALL(sys_setresuid16)
+ /* 165 */	CALL(sys_getresuid16)
+ 		CALL(sys_ni_syscall)		/* vm86 */

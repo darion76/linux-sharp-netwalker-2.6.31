@@ -1,0 +1,11 @@
+--- linux-2.6.31-ER1-efikamx.orig/arch/arm/mm/mmu.c	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx/arch/arm/mm/mmu.c	2010-01-24 16:23:03.000000000 -0600
+@@ -687,7 +687,7 @@
+ 
+ static void __init sanity_check_meminfo(void)
+ {
+-	int i, j, highmem = 0;
++	int i, j;
+ 
+ 	for (i = 0, j = 0; i < meminfo.nr_banks; i++) {
+ 		struct membank *bank = &meminfo.bank[j];

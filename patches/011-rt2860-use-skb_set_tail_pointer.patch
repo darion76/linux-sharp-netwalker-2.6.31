@@ -1,0 +1,73 @@
+From: Jeff Mahoney <jeffm@suse.com>
+Subject: rt2860: use skb_set_tail_pointer
+References: bnc#540589
+
+ This patch fixes the direct manipulation of skb->tail by the rt2860 driver.
+
+Signed-off-by: Jeff Mahoney <jeffm@suse.com>
+---
+ drivers/staging/rt2860/common/ba_action.c |    4 +++-
+ drivers/staging/rt2860/rt_linux.c         |    9 ++++++---
+ drivers/staging/rt2860/rt_linux.h         |    2 +-
+ 3 files changed, 10 insertions(+), 5 deletions(-)
+
+--- a/drivers/staging/rt2860/common/ba_action.c
++++ b/drivers/staging/rt2860/common/ba_action.c
+@@ -1506,8 +1506,10 @@ void convert_reordering_packet_to_preAMS
+ 
+ 	RTPKT_TO_OSPKT(pRxPkt)->dev = get_netdev_from_bssid(pAd, FromWhichBSSID);
+ 	RTPKT_TO_OSPKT(pRxPkt)->data = pRxBlk->pData;
++	RTPKT_TO_OSPKT(pRxPkt)->head = RTPKT_TO_OSPKT(pRxPkt)->data;
+ 	RTPKT_TO_OSPKT(pRxPkt)->len = pRxBlk->DataSize;
+-	RTPKT_TO_OSPKT(pRxPkt)->tail = RTPKT_TO_OSPKT(pRxPkt)->data + RTPKT_TO_OSPKT(pRxPkt)->len;
++	skb_set_tail_pointer(RTPKT_TO_OSPKT(pRxPkt),
++			     RTPKT_TO_OSPKT(pRxPkt)->len);
+ 
+ 	//
+ 	// copy 802.3 header, if necessary
+--- a/drivers/staging/rt2860/rt_linux.c
++++ b/drivers/staging/rt2860/rt_linux.c
+@@ -598,8 +598,9 @@ PNDIS_PACKET ClonePacket(
+     	// set the correct dataptr and data len
+     	pClonedPkt->dev = pRxPkt->dev;
+     	pClonedPkt->data = pData;
++	pClonedPkt->head = pClonedPkt->data;
+     	pClonedPkt->len = DataSize;
+-    	pClonedPkt->tail = pClonedPkt->data + pClonedPkt->len;
++	skb_set_tail_pointer(pClonedPkt, pClonedPkt->len);
+ 		ASSERT(DataSize < 1530);
+ 	}
+ 	return pClonedPkt;
+@@ -620,8 +621,9 @@ void  update_os_packet_info(
+ 
+ 	pOSPkt->dev = get_netdev_from_bssid(pAd, FromWhichBSSID);
+ 	pOSPkt->data = pRxBlk->pData;
++	pOSPkt->head = pOSPkt->data;
+ 	pOSPkt->len = pRxBlk->DataSize;
+-	pOSPkt->tail = pOSPkt->data + pOSPkt->len;
++	skb_set_tail_pointer(pOSPkt, pOSPkt->len);
+ }
+ 
+ 
+@@ -640,8 +642,9 @@ void wlan_802_11_to_802_3_packet(
+ 
+ 	pOSPkt->dev = get_netdev_from_bssid(pAd, FromWhichBSSID);
+ 	pOSPkt->data = pRxBlk->pData;
++	pOSPkt->head = pOSPkt->data;
+ 	pOSPkt->len = pRxBlk->DataSize;
+-	pOSPkt->tail = pOSPkt->data + pOSPkt->len;
++	skb_set_tail_pointer(pOSPkt, pOSPkt->len);
+ 
+ 	//
+ 	// copy 802.3 header
+--- a/drivers/staging/rt2860/rt_linux.h
++++ b/drivers/staging/rt2860/rt_linux.h
+@@ -609,7 +609,7 @@ void RTMP_GetCurrentSystemTime(LARGE_INT
+ 		(RTPKT_TO_OSPKT(_pkt)->len)
+ 
+ #define GET_OS_PKT_DATATAIL(_pkt) \
+-		(RTPKT_TO_OSPKT(_pkt)->tail)
++		(skb_tail_pointer(RTPKT_TO_OSPKT(_pkt)))
+ 
+ #define GET_OS_PKT_HEAD(_pkt) \
+ 		(RTPKT_TO_OSPKT(_pkt)->head)

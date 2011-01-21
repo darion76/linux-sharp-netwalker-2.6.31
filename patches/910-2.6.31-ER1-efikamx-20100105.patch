@@ -1,0 +1,2189 @@
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/board-mx51_efikamx.h linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/board-mx51_efikamx.h
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/board-mx51_efikamx.h	2009-12-12 13:23:05.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/board-mx51_efikamx.h	2010-01-05 20:35:58.781713539 -0600
+@@ -71,11 +71,11 @@
+ /* UART 2 configuration */
+ #define UART2_MODE		MODE_DCE
+ #define UART2_IR		IRDA
+-#define UART2_ENABLED		1
++#define UART2_ENABLED		0
+ /* UART 3 configuration */
+ #define UART3_MODE		MODE_DTE
+ #define UART3_IR		NO_IRDA
+-#define UART3_ENABLED		1
++#define UART3_ENABLED		0
+ 
+ #define MXC_LL_UART_PADDR	UART1_BASE_ADDR
+ #define MXC_LL_UART_VADDR	AIPS1_IO_ADDRESS(UART1_BASE_ADDR)
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/devices.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/devices.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/devices.c	2009-12-12 13:16:57.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/devices.c	2010-01-05 22:56:13.000000000 -0600
+@@ -37,6 +37,7 @@
+ int iram_ready;
+ /* Flag used to indicate if dvfs_core is active. */
+ int dvfs_core_is_active;
++extern int clock_auto;
+ 
+ void mxc_sdma_get_script_info(sdma_script_start_addrs * sdma_script_addr)
+ {
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c	2009-12-21 11:01:43.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx.c	2010-01-05 23:24:48.000000000 -0600
+@@ -52,38 +52,38 @@
+ #include "iomux.h"
+ #include "crm_regs.h"
+ 
++#include <linux/syscalls.h>
+ #include <linux/reboot.h>
++#include "mx51_efikamx.h"
++
++extern int board_id[2];
++u8 edid[256];
++
++int fb_dump_var( const char *func_char, struct fb_var_screeninfo *var);
+ 
+-#define VIDEO_OUTPUT_AUTO
+-//#define VIDEO_OUTPUT_VGA
+-//#define VIDEO_OUTPUT_HDMI
+ #define VIDEO_MODE_HDMI_DEF	4
+ #define VIDEO_MODE_VGA_DEF	2
+ 
+ #define MEGA              1000000
+ 
+-#ifdef VIDEO_OUTPUT_VGA
+-	int __initdata enable_hdmi = { 0 };
+-	int __initdata video_mode = { 2 };	//initial resolution, can be reset by fbset
+-
+-#elif defined(VIDEO_OUTPUT_HDMI)
+-	int __initdata enable_hdmi = { 1 };
+-	int __initdata video_mode = { 2 };
+-	int __initdata ce_mode = { 2 };
+-
+-#else //VIDEO_OUTPUT_AUTO
+-	int __initdata enable_hdmi = { 0 };
+-	int __initdata video_mode = { 2 }; //2: VGA 1024x768:65Mhz,  4:HDMI 720p
+-	int __initdata ce_mode = { 2 };
+-
+-#endif
+-
++int __initdata video_output = { VIDEO_OUT_STATIC_AUTO };
++int __initdata video_mode = { VIDEO_MODE_HDMI_DEF };
++int __initdata ce_mode = { VIDEO_MODE_HDMI_DEF };
+ int __initdata hdmi_audio = { 1 };
+-int __initdata enable_hdmi_spdif = { 0 };
++int __initdata enable_hdmi_spdif = { 1 }; // always on Efika MX
+ int __initdata clock_auto = { 1 };
+-char __initdata vmode[32] = { 0 };	/* for hdmi */
++char __initdata vmode[32] = { 0 };
+ int __initdata mxc_debug = { 1 };
+ int __initdata extsync = { 1 };
++EXPORT_SYMBOL(hdmi_audio);
++EXPORT_SYMBOL(enable_hdmi_spdif);
++EXPORT_SYMBOL(clock_auto);
++EXPORT_SYMBOL(vmode);
++EXPORT_SYMBOL(mxc_debug);
++EXPORT_SYMBOL(extsync);
++EXPORT_SYMBOL(video_output);
++EXPORT_SYMBOL(video_mode);
++EXPORT_SYMBOL(ce_mode);
+ 
+ /*!
+  * @file mach-mx51/mx51_efikamx.c
+@@ -92,7 +92,7 @@
+  *
+  * @ingroup MSL_MX51
+  */
+-extern int sii9022_hdmi_ctl_parse( const char *procfs_buffer );
++int (*sii9022_func)( const char *procfs_buffer );
+ extern void __init mx51_efikamx_io_init(void);
+ extern struct cpu_wp *(*get_cpu_wp)(int *wp);
+ extern void (*set_num_cpu_wp)(int num);
+@@ -127,7 +127,7 @@
+ 	 .mfd = 2,
+ 	 .mfn = 1,
+ 	 .cpu_podf = 4,
+-	 .cpu_voltage = 850000,},
++	 .cpu_voltage = 1000000,},
+ };
+ 
+ struct cpu_wp *mx51_efikamx_get_cpu_wp(int *wp)
+@@ -157,12 +157,10 @@
+ static struct mxc_fb_platform_data fb_data[] = {
+ 	{
+ 	 .interface_pix_fmt = IPU_PIX_FMT_RGB24,
+-	 .mode_str = "1280x720-16@60",	//hdmi
+-	 //.mode_str = "1280x720-16@60",	//hdmi
++	 .mode_str = "1280x720-24@60",	//hdmi
+ 	 },
+ 	{
+ 	 .interface_pix_fmt = IPU_PIX_FMT_RGB565,
+-	 //.mode_str = "1280x720-16@60",		//vga
+ 	 .mode_str = "1024x768-16@60", 	//vga
+ 	 },
+ };
+@@ -185,11 +183,11 @@
+ 	 .dev = {
+ 		 .release = mxc_nop_release,
+ 		 .coherent_dma_mask = 0xFFFFFFFF,
+-		 .platform_data = &fb_data[1], //1024x768 = &fb_data[1],  //1280x720 = &fb_data[0]
++		 .platform_data = &fb_data[1],
+ 		 },
+ 	 },
+ 	{
+-	 .name = "mxc_sdc_fb",
++	 .name = "mxc_sdc_fb", // overlay
+ 	 .id = 2,
+ 	 .dev = {
+ 		 .release = mxc_nop_release,
+@@ -198,20 +196,223 @@
+ 	 },
+ };
+ 
++int read_edid2(struct i2c_adapter *adp,
++	      char *edid, u16 len, struct fb_var_screeninfo *einfo,
++	      int *dvi)
++{
++	int i;
++	u8 buf0[2] = {0, 0};
++	int dat = 0;
++	u16 addr = 0x50;
++	struct i2c_msg msg[2] = {
++		{
++		.addr	= addr,
++		.flags	= 0,
++		.len	= 1,
++		.buf	= buf0,
++		}, {
++		.addr	= addr,
++		.flags	= I2C_M_RD,
++		.len	= 128,
++		.buf	= edid,
++		},
++	};
++
++	printk("%s \n", __func__ );
++	
++	if (adp == NULL || einfo == NULL)
++		return -EINVAL;
++
++	buf0[0] = 0x00;
++	memset(edid, 0, len);
++	memset(einfo, 0, sizeof(struct fb_var_screeninfo));
++	msg[1].len = len;
++	dat = i2c_transfer(adp, msg, 2);
++
++	/* If 0x50 fails, try 0x37. */
++	if (edid[1] == 0x00) {
++		msg[0].addr = msg[1].addr = 0x37;
++		dat = i2c_transfer(adp, msg, 2);
++	}
++
++	if (edid[1] == 0x00)
++		return -ENOENT;
++
++	*dvi = 0;
++	if ((edid[20] == 0x80) || (edid[20] == 0x88) || (edid[20] == 0))
++		*dvi = 1;
++
++	dat = fb_parse_edid(edid, einfo);
++	if (dat)
++		return -dat;
++
++	/* This is valid for version 1.3 of the EDID */
++	if ((edid[18] == 1) && (edid[19] == 3)) {
++		einfo->height = edid[21] * 10;
++		einfo->width = edid[22] * 10;
++	}
++
++	for(i=0; i< len; i+=32) {
++	   int j=0;
++	   
++	   for(j=0; j<32; j++) {
++		  printk("%02x", edid[i+j] );
++	   }
++	   printk("\n");
++	}
++
++	return 0;
++}
++
++void fb_dump_modeline( struct fb_videomode *modedb, int num)
++{
++	int i;
++	struct fb_videomode *mode;
++	
++	for (i = 0; i < num; i++) {
++
++		mode = &modedb[i];
+ 
+-static int my_atoi(const char *name)
++		printk("   \"%dx%d%s%d\" %lu.%02lu ",  
++			mode->xres, mode->yres, (mode->vmode & FB_VMODE_INTERLACED) ? "i@" : "@", mode->refresh,
++			(PICOS2KHZ(mode->pixclock) * 1000UL)/1000000,
++			(PICOS2KHZ(mode->pixclock) ) % 1000);
++		printk("%d %d %d %d ", 
++			mode->xres, 
++			mode->xres + mode->right_margin,
++			mode->xres + mode->right_margin + mode->hsync_len, 
++			mode->xres + mode->right_margin + mode->hsync_len + mode->left_margin );
++		printk("%d %d %d %d ", 
++			mode->yres, 
++			mode->yres + mode->lower_margin,
++			mode->yres + mode->lower_margin + mode->vsync_len, 
++			mode->yres + mode->lower_margin + mode->vsync_len + mode->upper_margin );
++		printk("%shsync %svsync\n", (mode->sync & FB_SYNC_HOR_HIGH_ACT) ? "+" : "-",
++			   (mode->sync & FB_SYNC_VERT_HIGH_ACT) ? "+" : "-" );
++
++	}
++	
++}
++
++static int fb_dump_mode( const char *func_char, const struct fb_videomode *mode)
++{
++	if ( mode == NULL )
++		return -1;
++
++	printk(KERN_INFO "%s geometry %u %u %u\n", 
++	  func_char,  mode->xres, mode->yres, mode->pixclock);
++	printk(KERN_INFO "%s timings %u %u %u %u %u %u %u\n",
++	  func_char, mode->pixclock, mode->left_margin, mode->right_margin, 
++	  mode->upper_margin, mode->lower_margin, mode->hsync_len, mode->vsync_len );
++	printk(KERN_INFO "%s flag %u sync %u vmode %u %s\n",
++	  func_char, mode->flag, mode->sync, mode->vmode, mode->flag & FB_MODE_IS_FIRST ? "preferred" : "" );
++
++	return 0;
++}
++
++void mxcfb_videomode_to_modelist(const struct fb_videomode *modedb, int num,
++			      struct list_head *head)
++{
++	int i;
++
++	INIT_LIST_HEAD(head);
++
++	for (i = 0; i < num; i++) {
++
++		struct list_head *pos, *n;
++		struct fb_modelist *modelist;
++		
++		list_for_each_safe(pos, n, head) {
++			modelist = list_entry(pos, struct fb_modelist, list);
++			if ( res_matches_refresh(modelist->mode, 
++									modedb[i].xres, modedb[i].yres, modedb[i].refresh) ) {
++
++				/* if candidate is a detail timing, delete existing one in modelist !
++				  * note: some TV has 1280x720@60 in standard timings but also has 1280x720 in detail timing block 
++				  *         in this case, use detail timing !
++				  */
++				if ( ((modelist->mode.vmode & FB_VMODE_INTERLACED) ^
++					 (modedb[i].vmode & FB_VMODE_INTERLACED)) == 0 &&
++					 ( modedb[i].flag & FB_MODE_IS_DETAILED ) ) {
++
++					printk(KERN_INFO "%ux%u%s%u pclk=%u removed\n",
++						modelist->mode.xres, modelist->mode.yres, 
++						(modelist->mode.vmode & FB_VMODE_INTERLACED ) ? "i@" : "@",
++						modelist->mode.refresh,
++						modelist->mode.pixclock );
++					list_del(pos);
++					kfree(pos);
++				}
++			}
++		}
++		if (fb_add_videomode(&modedb[i], head))
++			return;
++
++	}
++}
++
++void mxcfb_update_default_var(struct fb_var_screeninfo *var, 
++									struct fb_info *info, 
++									const struct fb_videomode *def_mode )
+ {
+-    int val = 0;
++	struct fb_monspecs *specs = &info->monspecs;
++	const struct fb_videomode *mode = NULL;
++	struct fb_var_screeninfo var_tmp;
++	int modeidx = 0;
++	
++	printk(KERN_INFO "%s mode_opt=%s vmode=%s\n", __func__ , fb_mode_option, vmode );
+ 
+-    for (;; name++) {
+-	switch (*name) {
+-	    case '0' ... '9':
+-		val = 10*val+(*name-'0');
+-		break;
+-	    default:
+-		return val;
++	/* user specified vmode,  ex: support reduce blanking, such as 1280x768MR-16@60 */
++	if ( vmode[0] ) {	
++		/* use edid support modedb or modedb in modedb.c */
++		modeidx = fb_find_mode(var, info, vmode, specs->modedb, specs->modedb_len, def_mode, 16);
+ 	}
++	else if ( specs->modedb ) {
++
++		fb_videomode_to_var( &var_tmp, def_mode);
++		mode = fb_find_nearest_mode( def_mode, &info->modelist );
++
++		if ( mode ) {
++			fb_videomode_to_var(var, mode);
++			printk(KERN_INFO "%ux%u@%u pclk=%u nearest mode is %ux%u@%u pclk=%u\n",
++				def_mode->xres, def_mode->yres, def_mode->refresh, def_mode->pixclock,
++				mode->xres, mode->yres, mode->refresh, mode->pixclock );
++			fb_dump_mode("nearest mode", mode);
++		}
++	}
++
++	if ( modeidx == 0 && mode == NULL ) { /* no best monitor support mode timing found, use def_video_mode timing ! */
++
++		fb_videomode_to_var(var, def_mode);
++	}
++
++	fb_dump_var( __func__, var );
++	
++}
++
++int handle_edid2(struct i2c_adapter *adp, char *buffer, u16 len)
++{
++	int err = 0;
++	int dvi = 0;
++	struct fb_var_screeninfo screeninfo;
++	
++	memset(&screeninfo, 0, sizeof(screeninfo));
++
++	if (cpu_is_mx51_rev(CHIP_REV_3_0) > 0) {
++		gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_CSI2_HSYNC), 1);
++		msleep(1);
+     }
++
++	err = read_edid2(adp, buffer, len, &screeninfo, &dvi);
++
++	if (cpu_is_mx51_rev(CHIP_REV_3_0) > 0)
++		gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_CSI2_HSYNC), 0);
++
++
++	if ( err )	
++		printk("read_edid error!\n");
++
++	return err;
+ }
+ 
+ 
+@@ -243,7 +445,7 @@
+ 	
+ }
+ 
+-int mxcfb_di_clock_adjust(int hdmi_output, int video_mode, u32 pixel_clock)
++int mxcfb_di_clock_adjust(int hdmi_output, u32 pixel_clock)
+ {
+ 	char *clk_di = "ipu_di0_clk";
+ 	u32 rate = 0;
+@@ -260,35 +462,8 @@
+ 	pixel_clock_last = pixel_clock;
+ 	hdmi_output_last = hdmi_output;	
+ 	
+-	if( hdmi_output ) {
+-		clk_di = "ipu_di0_clk"; //hdmi
+-	}
+-	else {
+-		clk_di = "ipu_di1_clk";	//vga
+-	}
+-	
+-	switch (video_mode) {
+-
+-#if 0
+-		case  4:	/* clock rate: 74.25 Mhz */
+-			clock_update("pll3", 297*MEGA, clk_di, 4);
+-			break;
+-		case 19:	/* clock rate: 74.18Mhz */
+-			clock_update("pll3", 297*MEGA, clk_di, 4);
+-			break;
+-
+-		case 2: /* 1024x768@60 65Mhz video_mode == 2 */
+-			clock_update("pll3", 260*MEGA, clk_di, 4);
+-			break;
+-
+-		case 1: /* 1024x768@60 64Mhz video_mode == 1 */
+-			clock_update("pll3", 256*MEGA, clk_di, 4);
+-			break;
+-#endif
+-
+-		default:
+ 			if ( pixel_clock == 0 ) {
+-				printk(KERN_INFO "%s incorrect clock rate (%u), reset to %u", 
++		printk(KERN_INFO "%s incorrect clock rate (%u), reset to %u\n", 
+ 					__func__, rate, 260*MEGA );
+ 				rate = 260*MEGA;
+ 			}
+@@ -298,38 +473,22 @@
+ 			printk("%s pixelclk=%u rate=%u\n", __func__, pixel_clock, rate );
+ 			
+ 			clock_update("pll3", rate, clk_di, 4);
+-			break;
+-	}
+-	return 0;
+ 
++	return 0;
+ }
+ 	
+-static void __init mxc_init_fb(int hdmi_output)
++void mxc_init_fb(void)
+ {	
+ 	if ( mxc_fb_initialized )
+-		return ;
++		return;
+ 	
+ 	mxc_fb_initialized = 1;
+ 	
+-	/* DVI Detect */
+-	// remove for PATA
+-	//gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_D12));
+-	/* DVI Reset - Assert for i2c disabled mode */
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
+-	/* DVI Power-down */
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 1);
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 0);
+-
+-	mxcfb_di_clock_adjust( enable_hdmi, video_mode, 0 );
++	printk("*** %s vmode=%s video-mode=%d ce-mode=%d clock_auto=%d\n", 
++		  __func__, vmode, video_mode, ce_mode, clock_auto);
+ 
+-	/* HDMI */
+-	if( hdmi_output ) {
+ 		(void)platform_device_register(&mxc_fb_device[0]);	// HDMI
+-	}
+-	else {
+-		(void)platform_device_register(&mxc_fb_device[1]);	// VGA
+-	}
++	//(void)platform_device_register(&mxc_fb_device[1]);	// VGA
+ 	(void)platform_device_register(&mxc_fb_device[2]);		// Overlay for VPU
+ 
+ }
+@@ -334,17 +493,12 @@
+ 
+ }
+ 
++
+ static int __init hdmi_setup(char *__unused)
+ {
+-#ifdef VIDEO_OUTPUT_VGA
+-	enable_hdmi = 0;
+-#elif defined(VIDEO_OUTPUT_HDMI)
+-	enable_hdmi = 1;
+-#else //VIDEO_OUTPUT_AUTO
+-	enable_hdmi = 1;
+ 	video_mode = VIDEO_MODE_HDMI_DEF; /* default cea mode */
+ 	ce_mode = video_mode;
+-#endif
++	video_output = VIDEO_OUT_STATIC_HDMI;	
+ 	return 1;
+ }
+ 
+@@ -359,7 +513,7 @@
+ 	if (!options || !*options)
+ 		return 1;
+ 
+-	ce_mode = my_atoi(options);
++	ce_mode = simple_strtol(options, NULL, 10);
+ 
+ 	printk("ce_mode=%d\n", ce_mode);
+ 
+@@ -371,7 +525,7 @@
+ 	if (!options || !*options)
+ 		return 1;
+ 
+-	video_mode = my_atoi(options);
++	video_mode = simple_strtol(options, NULL, 10);
+ 	ce_mode = video_mode;
+ 	
+ 	printk("video mode=%d\n", video_mode);
+@@ -384,7 +538,7 @@
+ 	if (!options || !*options)
+ 		return 1;
+ 	
+-	clock_auto = my_atoi(options);
++	clock_auto = simple_strtol(options, NULL, 10);
+ 	printk("clock_auto=%d\n", clock_auto);
+ 	
+ 	return 1;
+@@ -539,10 +693,9 @@
+ 	int ret;
+ 
+ 	if (to_platform_device(dev)->id == 0) {
+-		//ret = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_0));
+-		//return ret;
+-		//ron: no CD on SDHC1, hard-coding
+-		return 0;
++		// only detects on 1.2, on 1.1 there is no CD pin..
++		ret = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_0));
++		return ret;
+ 	} else {		/* config the det pin for SDHC2 */
+ 		//ron: SDHC2 CD gpio
+ 		ret = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_8));
+@@ -657,7 +810,7 @@
+ 	.ssi_num = 1,
+ 	.src_port = 2,
+ 	.ext_port = 3,
+-	.hp_irq = IOMUX_TO_IRQ(MX51_PIN_NANDF_CS0),
++	.hp_irq = IOMUX_TO_IRQ(MX51_PIN_DISPB2_SER_RS),
+ 	.hp_status = headphone_det_status,
+ 	.amp_enable = mxc_sgtl5000_amp_enable,
+ 	.sysclk = 12288000,
+@@ -772,6 +925,18 @@
+ 	}
+ }
+ 
++int mxc_reboot(void)
++{
++	/* wdog reset workaround, result power reset! */
++
++	if ( board_id[0] == 0 && board_id[1] == 1 ) /* board rev1.2 */
++		gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_GPIO1_4), 0);
++	else if ( board_id[0] == 1 && board_id[1] == 1 ) /* board rev1.1 */
++		gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN13), 0);
++
++	return 0;
++}
++
+ #define PWGT1SPIEN (1<<15)
+ #define PWGT2SPIEN (1<<16)
+ #define USEROFFSPI (1<<3)
+@@ -797,26 +962,41 @@
+ 
+ static struct input_dev *pwr_inputdev;
+ 
++static void do_poweroff(struct work_struct *dummy)
++{
++	struct task_struct *p;
++
++	for_each_process(p) {
++		if (p->mm && !is_global_init(p))
++			/* Not swapper, init nor kernel thread */
++			force_sig(SIGKILL, p);
++	}
++	msleep(1000);
++	sys_reboot(LINUX_REBOOT_MAGIC1, LINUX_REBOOT_MAGIC2, LINUX_REBOOT_CMD_POWER_OFF, NULL);
++}
++
++static DECLARE_WORK(poweroff_work, do_poweroff);
++
+ /*!
+  * Power Key interrupt handler.
+  */
+ static irqreturn_t power_key_int(int irq, void *dev_id)
+ {
+-	//printk("PWR key pressed\n");
+ 	int pk_pressed;
+ 	static unsigned int pk_press_count = 0;
+ 	static unsigned long pk_press_time = 0;
+ 	
+ 	pk_pressed = !gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_EIM_DTACK));
+ 	if(pk_pressed) {
+-		pr_info("PWR key pressed\n");
+-
+ 		/* accumulate power key press time */
+-		if ( jiffies - pk_press_time > 1*HZ )
++		if ( jiffies - pk_press_time < 1*HZ )
+ 			pk_press_count++;
+ 		else
+ 			pk_press_count = 0;
+ 			
++		pk_press_time = jiffies;
++		pr_info("Power Key pressed #%u\n", pk_press_count);
++			
+ 		/* ron: input_report_key(pk_dev, KEY_POWER, pk_pressed); */
+ 		set_irq_type(irq, IRQF_TRIGGER_RISING); /* ron: detect falling edge */
+ 		input_report_key(pwr_inputdev, KEY_POWER, 1);
+@@ -830,11 +1010,8 @@
+ 	}
+ 
+ 	/* software shutdown if power keypress >= 4 */
+-	if ( pk_press_count >= 4 ) {
+-		kernel_power_off();
+-		unlock_kernel();
+-		do_exit(0);
+-		//reboot: ctrl_alt_del();
++	if ( pk_press_count >= 3 ) {
++		schedule_work_on(first_cpu(cpu_online_map), &poweroff_work);
+ 	}
+ 	return 0;
+ }
+@@ -979,6 +1156,7 @@
+ 	        ret  = 0;
+ 	} else {
+ 	        /* fill the buffer, return the buffer size */
++			len +=sprintf(procfs_buffer+len, "board id		= %x.%x\n", board_id[0], board_id[1] );			
+ 			len +=sprintf(procfs_buffer+len, "mxc_debug		= %d\n", mxc_debug );
+ 			len +=sprintf(procfs_buffer+len, "clock_auto	= %d\n", clock_auto );
+ 			len +=sprintf(procfs_buffer+len, "extsync		= %d\n", extsync );
+@@ -1016,9 +1194,10 @@
+ 	        return -EFAULT;
+ 	}
+ 
+-	if ( strncmp( procfs_buffer, "hdmi_", 5) == 0 )
+-		sii9022_hdmi_ctl_parse( procfs_buffer );
+-	else if ( strncmp( procfs_buffer, "mxc_debug_on", 12) == 0 )
++	if ( strncmp( procfs_buffer, "hdmi_", 5) == 0 ) {
++		if( sii9022_func )
++			sii9022_func( procfs_buffer );
++	} else if ( strncmp( procfs_buffer, "mxc_debug_on", 12) == 0 )
+ 		mxc_debug = 1;
+ 	else if ( strncmp( procfs_buffer, "mxc_debug_off", 13) == 0 )
+ 		mxc_debug = 0;
+@@ -1090,8 +1269,6 @@
+ 
+ 	mxc_init_pata();
+ 
+-	mxc_init_fb( enable_hdmi );	//TODO: dynamic call by sii9022/cs8556
+-	
+ 	//mxc_init_bl();
+ 	mxc_init_mmc();
+ 	//mxc_init_gpio_button();
+@@ -1123,6 +1300,8 @@
+ #endif
+ 	pm_power_off = mxc_power_off;
+ 	mxc_init_sgtl5000();
++	
++	printk(KERN_INFO "board ID: %d.%d\n", board_id[0], board_id[1] );	
+ }
+ 
+ static void __init mx51_efikamx_timer_init(void)
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_gpio.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx_gpio.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_gpio.c	2009-12-12 17:30:44.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx_gpio.c	2010-01-05 22:43:32.000000000 -0600
+@@ -15,11 +15,14 @@
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <linux/delay.h>
++#include <linux/leds.h>
+ #include <mach/hardware.h>
+ #include <mach/gpio.h>
+ #include "board-mx51_efikamx.h"
+ #include "iomux.h"
+ 
++int board_id[2] = { 0, 0 };
++
+ /*!
+  * @file mach-mx51/mx51_efikamx_gpio.c
+  *
+@@ -166,12 +169,13 @@
+ 	{
+ 	 MX51_PIN_EIM_CRE, IOMUX_CONFIG_GPIO,
+ 	 },
+-	{
++	{//board detect needs 100k pu
+ 	 MX51_PIN_NANDF_CS0, IOMUX_CONFIG_GPIO,
+ 	 PAD_CTL_100K_PU,
+ 	 },
+-	{
++	{// board detect needs 100k pu
+ 	 MX51_PIN_NANDF_CS1, IOMUX_CONFIG_GPIO,
++	 PAD_CTL_100K_PU,
+ 	 },
+ 	{			/* SDHC2 CD */
+ 	 MX51_PIN_GPIO1_8, IOMUX_CONFIG_ALT6 | IOMUX_CONFIG_SION,
+@@ -391,11 +394,6 @@
+ 	  (PAD_CTL_SRE_SLOW | PAD_CTL_DRV_MEDIUM | PAD_CTL_100K_PU |
+ 	  PAD_CTL_HYS_ENABLE | PAD_CTL_DRV_VOT_HIGH),
+ 	 },
+-	{			/* Detect pin GPIO BB2.0 and BB2.5 */
+-	 MX51_PIN_UART3_RXD, IOMUX_CONFIG_ALT3,
+-	 (PAD_CTL_HYS_NONE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_KEEPER |
+-	  PAD_CTL_DRV_HIGH | PAD_CTL_SRE_FAST),
+-	 },
+ 	{
+ 	 MX51_PIN_UART1_RXD, IOMUX_CONFIG_ALT0,
+ 	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_PULL |
+@@ -527,7 +525,6 @@
+ 	{
+ 	 MX51_PIN_NANDF_RB0, IOMUX_CONFIG_ALT1,
+ 	 ATA_PAD_CONFIG,
+-	// (ATA_PAD_CONFIG|PAD_CTL_100K_PD), //for SSD module compatible
+ 	 },
+ 	{
+ 	 MX51_PIN_NANDF_WP_B, IOMUX_CONFIG_ALT1,
+@@ -537,17 +534,10 @@
+ 	{
+ 	 MX51_PIN_GPIO_NAND, IOMUX_CONFIG_ALT1,
+ 	 ATA_PAD_CONFIG,
+-	// (ATA_PAD_CONFIG|PAD_CTL_100K_PD), //for SSD module compatible
+ 	 },
+-	/* TO 1.0 */
+-	//{
+-	// MX51_PIN_NANDF_RB5, IOMUX_CONFIG_ALT1,
+-	// ATA_PAD_CONFIG,
+-	// },
+ 	{
+ 	 MX51_PIN_NANDF_RB1, IOMUX_CONFIG_ALT1,
+ 	 ATA_PAD_CONFIG,
+-	// (ATA_PAD_CONFIG|PAD_CTL_22K_PU), //for SSD module compatible
+ 	 },
+ 	{
+ 	 MX51_PIN_NANDF_D0, IOMUX_CONFIG_ALT1,
+@@ -615,6 +605,42 @@
+ 	 },
+ };
+ 
++
++
++static struct gpio_led mx51_efikamx_leds[] = {
++	{
++		.name = "efikamx:green:power",
++		.default_trigger = "default-on",
++		.gpio = IOMUX_TO_GPIO(POWER_LED_PIN),
++	},
++	{
++		.name = "efikamx:red:ide",
++		.default_trigger = "ide-disk",
++		.gpio = IOMUX_TO_GPIO(SLEEP_LED_PIN),
++	},
++	{
++		.name = "efikamx:blue:sdhc",
++		.default_trigger = "mmc0",
++		.gpio = IOMUX_TO_GPIO(WLAN_LED_PIN),
++	},
++};
++
++static struct gpio_led_platform_data mx51_efikamx_leds_info = {
++	.leds = mx51_efikamx_leds,
++	.num_leds = ARRAY_SIZE(mx51_efikamx_leds),
++};
++
++struct platform_device mx51_efikamx_leds_device = {
++	.name = "leds-gpio",
++	.id = -1,
++	.dev = {
++		.platform_data = &mx51_efikamx_leds_info,
++	},
++};
++EXPORT_SYMBOL(mx51_efikamx_leds_device);
++
++
++
+ void __init mx51_efikamx_io_init(void)
+ {
+ 	int i, num;
+@@ -650,27 +676,29 @@
+ 	/* mxc_request_iomux(MX51_PIN_CSI1_D9, IOMUX_CONFIG_ALT3); */
+ 	gpio_request(IOMUX_TO_GPIO(WLAN_LED_PIN), "wlan_led");
+ 	gpio_direction_output(IOMUX_TO_GPIO(WLAN_LED_PIN)/* MX51_PIN_CSI1_D9 */, 0);
+-	gpio_set_value(IOMUX_TO_GPIO(WLAN_LED_PIN)/* MX51_PIN_CSI1_D9 */, 0);
++	gpio_free(IOMUX_TO_GPIO(WLAN_LED_PIN));
+ 
+ 	// Power On LED
+ 	/* mxc_request_iomux(MX51_PIN_CSI1_VSYNC, IOMUX_CONFIG_ALT3); */
+ 	gpio_request(IOMUX_TO_GPIO(POWER_LED_PIN), "power_led");
+-	gpio_direction_output(IOMUX_TO_GPIO(POWER_LED_PIN)/* MX51_PIN_CSI1_VSYNC */, 0);
+-	gpio_set_value(IOMUX_TO_GPIO(POWER_LED_PIN)/* MX51_PIN_CSI1_VSYNC */, 1);
++	gpio_direction_output(IOMUX_TO_GPIO(POWER_LED_PIN)/* MX51_PIN_CSI1_VSYNC */, 1);
++	gpio_free(IOMUX_TO_GPIO(POWER_LED_PIN));
+ 
+ 	// Sleep LED
+ 	/* mxc_request_iomux(MX51_PIN_CSI1_HSYNC, IOMUX_CONFIG_ALT3); */
+ 	gpio_request(IOMUX_TO_GPIO(SLEEP_LED_PIN), "sleep_led");	
+ 	gpio_direction_output(IOMUX_TO_GPIO(SLEEP_LED_PIN)/* MX51_PIN_CSI1_HSYNC */, 0);
+-	gpio_set_value(IOMUX_TO_GPIO(SLEEP_LED_PIN)/* MX51_PIN_CSI1_HSYNC */, 0);
++	gpio_free(IOMUX_TO_GPIO(SLEEP_LED_PIN));
++
++	// register platform device for LEDs now we fiddled them
++	(void)platform_device_register(&mx51_efikamx_leds_device);
+ 
+ 	//ron: USB Hub Reset
+ 	mxc_request_iomux(MX51_PIN_GPIO1_5, IOMUX_CONFIG_ALT0);
+ 	mxc_iomux_set_pad(MX51_PIN_GPIO1_5, PAD_CTL_DRV_HIGH |
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), "usb_hub_reset");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 1);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 1);
+ 	msleep(1);
+ 	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 0);
+ 	msleep(1);
+@@ -693,7 +720,6 @@
+ 
+ 	/* enable BlueTooth */
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), "bluetooth_enable");
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), 0);
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), 0);
+ 	msleep(10);
+ 	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), 1);
+@@ -701,13 +727,11 @@
+ 	/* pull low wlan_on# */
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A22), "wlan_on");
+     gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A22), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A22), 0);
+ 	msleep(10);
+ 
+ 	/* pull low-high pulse wlan_rst# */
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), "wlan_rst");
+     gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 0);
+ 	msleep(10);
+ 	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 1);
+ 
+@@ -724,7 +748,6 @@
+ 	mxc_free_iomux(MX51_PIN_GPIO1_2, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_GPIO1_3, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_EIM_LBA, IOMUX_CONFIG_GPIO);
+-	mxc_free_iomux(MX51_PIN_NANDF_CS0, IOMUX_CONFIG_GPIO);
+ 
+ 	/* i2c1 SDA */
+ 	mxc_request_iomux(MX51_PIN_EIM_D16,
+@@ -773,8 +796,7 @@
+ 	mxc_iomux_set_pad(MX51_PIN_DI1_PIN12, PAD_CTL_DRV_HIGH |
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), "26mhz_osc_en");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), 1);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), 1);
+ 
+ 	/* Drive USB_CLK_EN_B line low */
+ 	mxc_request_iomux(MX51_PIN_EIM_D17, IOMUX_CONFIG_ALT1);
+@@ -782,7 +804,6 @@
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D17), "usb_clk_en_b");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D17), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_D17), 0);
+ 
+ 	/* MX51_PIN_EIM_D21 - De-assert USB PHY RESETB */
+ 	mxc_request_iomux(MX51_PIN_EIM_D21, IOMUX_CONFIG_ALT1);
+@@ -791,8 +812,7 @@
+ 			  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE |
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), "usb_phy_resetb");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), 1);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), 1);
+ 
+ 	/* hphone_det_b */
+ 	mxc_request_iomux(MX51_PIN_DISPB2_SER_RS, IOMUX_CONFIG_ALT4);
+@@ -811,18 +831,42 @@
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_CSPI1_RDY), "audio_clk_en_b");	
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_CSPI1_RDY), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_CSPI1_RDY), 0);
+ 
+ 	/* Deassert VGA reset to free i2c bus */
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), "vga_reset");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), 1);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), 1);
+ 
+ 	/* LCD related gpio */
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), "lcd_gpio");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), 0);
++	
++	/* Watchdog */
++	gpio_direction_input(MX51_PIN_DI1_PIN13);
++
++	/* DVI Reset - Assert for i2c disabled mode */
++	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
++
++	/* DVI Power-down */
++	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 1);
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 0);
++
++	//retrieve board id rev1.1: 1,1	rev1.2: 0,1    notice that this cannot be execute too early!
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0), "board_id1");
++	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0));
++	board_id[0] = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0));
++
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1), "board_id2");
++	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1));
++	board_id[1] = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1));
++
++	/* Watchdog */
++	/* board rev1.1: MX51_PIN_DI1_PIN13, rev1.2: MX51_PIN_GPIO1_4 */
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN13), "wdog_rst");
++	gpio_direction_input(MX51_PIN_DI1_PIN13);
+ }
+ 
++#if 0
+ /*!
+  * Exported function to set a LED on/off state
+  * @param type		0 WiFi, 1 Power On, 2 Sleep
+@@ -848,3 +892,4 @@
+ 	}
+ }
+ EXPORT_SYMBOL(imx51_efikamx_set_led);
++#endif
+\ No newline at end of file
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.h linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx.h
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.h	1969-12-31 18:00:00.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx.h	2010-01-05 21:31:13.000000000 -0600
+@@ -0,0 +1,12 @@
++#ifndef __MX51_EFIKAMX_H__
++#define __MX51_EFIKAMX_H__
++
++#define VIDEO_OUT_STATIC_AUTO	0
++#define VIDEO_OUT_STATIC_HDMI	1
++#define VIDEO_OUT_STATIC_DSUB	2
++
++#define res_matches_refresh(v, x, y, r) \
++			((v).xres == (x) && (v).yres == (y) && (v).refresh == (r))
++
++
++#endif /* __MX51_EFIKAMX_H__ */
+\ No newline at end of file
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_pmic_mc13892.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx_pmic_mc13892.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_pmic_mc13892.c	2009-12-12 16:31:35.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/mx51_efikamx_pmic_mc13892.c	2010-01-05 22:56:15.000000000 -0600
+@@ -118,7 +118,7 @@
+ 		.boot_on = 1,
+ 		.initial_state = PM_SUSPEND_MEM,
+ 		.state_mem = {
+-			.uV = 700000,
++			.uV = 850000,
+ 			.mode = REGULATOR_MODE_NORMAL,
+ 			.enabled = 1,
+ 		},
+@@ -137,7 +137,7 @@
+ 		.boot_on = 1,
+ 		.initial_state = PM_SUSPEND_MEM,
+ 		.state_mem = {
+-			.uV = 900000,
++			.uV = 950000,
+ 			.mode = REGULATOR_MODE_NORMAL,
+ 			.enabled = 1,
+ 		},
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/pm.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/pm.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/pm.c	2009-12-12 13:16:54.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/pm.c	2010-01-05 23:07:28.000000000 -0600
+@@ -25,6 +25,9 @@
+ #include <asm/mach/map.h>
+ #include <mach/hardware.h>
+ #include "crm_regs.h"
++#include <asm/mach-types.h>
++#include <linux/pmic_external.h>
++#include <linux/pmic_status.h>
+ 
+ static struct cpu_wp *cpu_wp_tbl;
+ static struct clk *cpu_clk;
+@@ -35,6 +38,8 @@
+ extern int set_cpu_freq(int wp);
+ #endif
+ 
++#define PWGT1SPIEN (1<<15)
++#define PWGT2SPIEN (1<<16)
+ 
+ static struct device *pm_dev;
+ struct clk *gpc_dvfs_clk;
+@@ -54,6 +59,11 @@
+ 		gpc_dvfs_clk = clk_get(NULL, "gpc_dvfs_clk");
+ 	/* gpc clock is needed for SRPG */
+ 	clk_enable(gpc_dvfs_clk);
++	
++	/* ron: Enable power gate */
++	pmic_write_reg(REG_POWER_MISC, (PWGT1SPIEN|PWGT2SPIEN),
++		(PWGT1SPIEN|PWGT2SPIEN));
++	
+ 	switch (state) {
+ 	case PM_SUSPEND_MEM:
+ 		mxc_cpu_lp_set(STOP_POWER_OFF);
+@@ -139,6 +149,10 @@
+ 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
+ 	}
+ #endif
++
++	/* ron: disable power gate */
++	pmic_write_reg(REG_POWER_MISC, ~(PWGT1SPIEN|PWGT2SPIEN),
++		(PWGT1SPIEN|PWGT2SPIEN));
+ }
+ 
+ /*
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/serial.h linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/serial.h
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/serial.h	2009-12-12 13:16:51.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/serial.h	2010-01-05 22:58:29.000000000 -0600
+@@ -56,9 +56,9 @@
+  */
+ #define UART1_UFCR_TXTL         16
+ /* UART 2 configuration */
+-#define UART2_HW_FLOW           0
+-#define UART2_UCR4_CTSTL        -1
+-#define UART2_DMA_ENABLE        0
++#define UART2_HW_FLOW           1
++#define UART2_UCR4_CTSTL        16
++#define UART2_DMA_ENABLE        1
+ #define UART2_DMA_RXBUFSIZE     512
+ #define UART2_UFCR_RXTL         16
+ #define UART2_UFCR_TXTL         16
+diff -urNBb linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/system.c linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/system.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/system.c	2009-12-12 13:16:53.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/arch/arm/mach-mx51/system.c	2010-01-05 22:44:37.000000000 -0600
+@@ -35,6 +35,7 @@
+ extern int iram_ready;
+ static struct clk *gpc_dvfs_clk;
+ 
++extern void mxc_reboot(void);
+ extern void cpu_cortexa8_do_idle(void *addr);
+ 
+ 
+@@ -184,4 +185,5 @@
+ 
+ 	/* Assert SRS signal */
+ 	mxc_wd_reset();
++	mxc_reboot();
+ }
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/ata/pata_fsl.c linux-2.6.31-ER1-efikamx.next/drivers/ata/pata_fsl.c
+--- linux-2.6.31-ER1-efikamx/drivers/ata/pata_fsl.c	2009-12-12 13:16:51.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/drivers/ata/pata_fsl.c	2010-01-05 20:44:49.151048004 -0600
+@@ -26,6 +26,7 @@
+ #include <linux/fsl_devices.h>
+ #include <linux/clk.h>
+ #include <linux/regulator/consumer.h>
++#include <linux/leds.h>
+ #include <mach/dma.h>
+ 
+ #define DRV_NAME "pata_fsl"
+@@ -598,6 +599,9 @@
+ 
+ 	priv->dma_done = 0;
+ 
++	/* Genesi */
++	ledtrig_ide_activity();
++
+ 	ata_sff_exec_command(ap, &qc->tf);
+ }
+ 
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/leds/Kconfig linux-2.6.31-ER1-efikamx.next/drivers/leds/Kconfig
+--- linux-2.6.31-ER1-efikamx/drivers/leds/Kconfig	2009-12-12 13:16:52.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/drivers/leds/Kconfig	2010-01-05 20:38:57.333805785 -0600
+@@ -263,7 +263,7 @@
+ 
+ config LEDS_TRIGGER_IDE_DISK
+ 	bool "LED IDE Disk Trigger"
+-	depends on LEDS_TRIGGERS && IDE_GD_ATA
++	depends on LEDS_TRIGGERS && (IDE_GD_ATA || PATA_FSL)
+ 	help
+ 	  This allows LEDs to be controlled by IDE disk activity.
+ 	  If unsure, say Y.
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/staging/rt2860/Kconfig linux-2.6.31-ER1-efikamx.next/drivers/staging/rt2860/Kconfig
+--- linux-2.6.31-ER1-efikamx/drivers/staging/rt2860/Kconfig	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/staging/rt2860/Kconfig	2010-01-05 20:40:34.822711068 -0600
+@@ -1,5 +1,5 @@
+ config RT2860
+ 	tristate "Ralink 2860 wireless support"
+-	depends on PCI && X86 && WLAN_80211
++	depends on PCI && WLAN_80211
+ 	---help---
+ 	  This is an experimental driver for the Ralink 2860 wireless chip.
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/staging/rt2870/Kconfig linux-2.6.31-ER1-efikamx.next/drivers/staging/rt2870/Kconfig
+--- linux-2.6.31-ER1-efikamx/drivers/staging/rt2870/Kconfig	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/staging/rt2870/Kconfig	2010-01-05 20:40:36.538711161 -0600
+@@ -1,6 +1,6 @@
+ config RT2870
+ 	tristate "Ralink 2870/3070 wireless support"
+-	depends on USB && X86 && WLAN_80211
++	depends on USB && WLAN_80211
+ 	---help---
+ 	  This is an experimental driver for the Ralink xx70 wireless chips.
+	  
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/staging/rt3070/Kconfig linux-2.6.31-ER1-efikamx.next/drivers/staging/rt3070/Kconfig
+--- linux-2.6.31-ER1-efikamx/drivers/staging/rt3070/Kconfig	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/staging/rt3070/Kconfig	2010-01-05 20:40:37.230714104 -0600
+@@ -1,6 +1,6 @@
+ config RT3070
+ 	tristate "Ralink 3070 wireless support"
+-	depends on USB && X86 && WLAN_80211
++	depends on USB && WLAN_80211
+ 	---help---
+ 	  This is an experimental driver for the Ralink 3070 wireless chip.
+ 
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/edid.h linux-2.6.31-ER1-efikamx.next/drivers/video/edid.h
+--- linux-2.6.31-ER1-efikamx/drivers/video/edid.h	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/edid.h	2010-01-05 21:32:42.000000000 -0600
+@@ -47,6 +47,7 @@
+ #define STD_TIMING_DESCRIPTIONS_START           0x26
+ 
+ #define DETAILED_TIMING_DESCRIPTIONS_START	0x36
++#define DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START	0x80
+ #define DETAILED_TIMING_DESCRIPTION_SIZE	18
+ #define NO_DETAILED_TIMING_DESCRIPTIONS		4
+ 
+@@ -101,8 +102,8 @@
+ #define V_SYNC_WIDTH       COMBINE_HI_4LO( V_SYNC_WIDTH_HI, V_SYNC_WIDTH_LO )
+ #define V_SYNC_OFFSET      COMBINE_HI_4LO( V_SYNC_OFFSET_HI, V_SYNC_OFFSET_LO )
+ 
+-#define H_SYNC_WIDTH       COMBINE_HI_4LO( H_SYNC_WIDTH_HI, H_SYNC_WIDTH_LO )
+-#define H_SYNC_OFFSET      COMBINE_HI_4LO( H_SYNC_OFFSET_HI, H_SYNC_OFFSET_LO )
++#define H_SYNC_WIDTH       COMBINE_HI_8LO( H_SYNC_WIDTH_HI, H_SYNC_WIDTH_LO )
++#define H_SYNC_OFFSET      COMBINE_HI_8LO( H_SYNC_OFFSET_HI, H_SYNC_OFFSET_LO )
+ 
+ #define H_SIZE_LO          (unsigned)block[ 12 ]
+ #define V_SIZE_LO          (unsigned)block[ 13 ]
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/fbmem.c linux-2.6.31-ER1-efikamx.next/drivers/video/fbmem.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/fbmem.c	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/fbmem.c	2010-01-05 21:35:28.000000000 -0600
+@@ -35,6 +35,10 @@
+ 
+ #include <asm/fb.h>
+ 
++#if defined(CONFIG_MACH_MX51_EFIKAMX)
++extern video_output;
++int mxcfb_di_clock_adjust(int hdmi_output, u32 pixel_clock);
++#endif
+ 
+     /*
+      *  Frame buffer device initialization and setup routines
+@@ -1039,8 +1043,13 @@
+ 		ret = copy_to_user(argp, &var, sizeof(var)) ? -EFAULT : 0;
+ 		break;
+ 	case FBIOPUT_VSCREENINFO:
+-		if (copy_from_user(&var, argp, sizeof(var)))
+-			return -EFAULT;
++		if (copy_from_user(&var, argp, sizeof(var))) {
++			ret = -EFAULT;
++			break;
++		}
++#if defined(CONFIG_MACH_MX51_EFIKAMX)
++		mxcfb_di_clock_adjust(video_output, var.pixclock);
++#endif		
+ 		if (!lock_fb_info(info))
+ 			return -ENODEV;
+ 		acquire_console_sem();
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/fbmon.c linux-2.6.31-ER1-efikamx.next/drivers/video/fbmon.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/fbmon.c	2009-09-09 17:13:59.000000000 -0500
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/fbmon.c	2010-01-05 21:41:20.000000000 -0600
+@@ -41,6 +41,7 @@
+  */
+ 
+ #undef DEBUG  /* define this for verbose EDID parsing output */
++#define DEBUG 1
+ 
+ #ifdef DEBUG
+ #define DPRINTK(fmt, args...) printk(fmt,## args)
+@@ -492,18 +493,25 @@
+ 	return num;
+ }
+ 
+-static int get_std_timing(unsigned char *block, struct fb_videomode *mode)
++static int get_std_timing(u8 edid_ver, u8 edid_rev, unsigned char *block, struct fb_videomode *mode)
+ {
+ 	int xres, yres = 0, refresh, ratio, i;
+ 
++	if( edid_ver < 1 || (edid_ver == 1 && edid_rev < 3 ) )
+ 	xres = (block[0] + 31) * 8;
++	else
++		xres = (block[0] * 8) + 248;	/* edid v1.3 */
++
+ 	if (xres <= 256)
+ 		return 0;
+ 
+ 	ratio = (block[1] & 0xc0) >> 6;
+ 	switch (ratio) {
+-	case 0:
++	case 0:		/* aspect ratio 16:10 in v1.3,  ratio 1:1 prior to v1.3 */
++		if( edid_ver < 1 || (edid_ver == 1 && edid_rev < 3 ) )
+ 		yres = xres;
++		else
++			yres = (xres *10)/16;
+ 		break;
+ 	case 1:
+ 		yres = (xres * 3)/4;
+@@ -531,13 +539,13 @@
+ 	return 1;
+ }
+ 
+-static int get_dst_timing(unsigned char *block,
++static int get_dst_timing(u8 edid_ver, u8 edid_rev, unsigned char *block,
+ 			  struct fb_videomode *mode)
+ {
+ 	int j, num = 0;
+ 
+ 	for (j = 0; j < 6; j++, block += STD_TIMING_DESCRIPTION_SIZE)
+-		num += get_std_timing(block, &mode[num]);
++		num += get_std_timing(edid_ver, edid_rev, block, &mode[num]);
+ 
+ 	return num;
+ }
+@@ -573,13 +581,21 @@
+ 	}
+ 	mode->flag = FB_MODE_IS_DETAILED;
+ 
+-	DPRINTK("      %d MHz ",  PIXEL_CLOCK/1000000);
+-	DPRINTK("%d %d %d %d ", H_ACTIVE, H_ACTIVE + H_SYNC_OFFSET,
+-	       H_ACTIVE + H_SYNC_OFFSET + H_SYNC_WIDTH, H_ACTIVE + H_BLANKING);
+-	DPRINTK("%d %d %d %d ", V_ACTIVE, V_ACTIVE + V_SYNC_OFFSET,
+-	       V_ACTIVE + V_SYNC_OFFSET + V_SYNC_WIDTH, V_ACTIVE + V_BLANKING);
+-	DPRINTK("%sHSync %sVSync\n\n", (HSYNC_POSITIVE) ? "+" : "-",
+-	       (VSYNC_POSITIVE) ? "+" : "-");
++	DPRINTK("      \"%dx%d%s%d\" %d ",  
++		mode->xres, mode->yres, INTERLACED ? "i@" : "@", mode->refresh,
++		PIXEL_CLOCK/1000000);
++	DPRINTK("%d %d %d %d ", 
++		mode->xres, 
++		mode->xres + mode->right_margin,
++		mode->xres + mode->right_margin + mode->hsync_len, 
++		mode->xres + mode->right_margin + mode->hsync_len + mode->left_margin );
++	DPRINTK("%d %d %d %d ", 
++		mode->yres, 
++		mode->yres + mode->lower_margin,
++		mode->yres + mode->lower_margin + mode->vsync_len, 
++		mode->yres + mode->lower_margin + mode->vsync_len + mode->upper_margin );
++	DPRINTK("%shsync %svsync\n", (HSYNC_POSITIVE) ? "+" : "-",
++		   (VSYNC_POSITIVE) ? "+" : "-" );
+ }
+ 
+ /**
+@@ -599,6 +615,9 @@
+ 	unsigned char *block;
+ 	int num = 0, i, first = 1;
+ 
++	int offset = 0;
++	u8 edid_ver = 0, edid_rev = 0;
++	
+ 	mode = kzalloc(50 * sizeof(struct fb_videomode), GFP_KERNEL);
+ 	if (mode == NULL)
+ 		return NULL;
+@@ -611,6 +630,9 @@
+ 
+ 	*dbsize = 0;
+ 
++	edid_ver = edid[EDID_STRUCT_VERSION];
++	edid_rev = edid[EDID_STRUCT_REVISION];
++	
+ 	DPRINTK("   Detailed Timings\n");
+ 	block = edid + DETAILED_TIMING_DESCRIPTIONS_START;
+ 	for (i = 0; i < 4; i++, block+= DETAILED_TIMING_DESCRIPTION_SIZE) {
+@@ -631,12 +653,43 @@
+ 	DPRINTK("   Standard Timings\n");
+ 	block = edid + STD_TIMING_DESCRIPTIONS_START;
+ 	for (i = 0; i < STD_TIMING; i++, block += STD_TIMING_DESCRIPTION_SIZE)
+-		num += get_std_timing(block, &mode[num]);
++		num += get_std_timing(edid_ver, edid_rev, block, &mode[num]);
+ 
++	DPRINTK("   Detail Timings\n");
+ 	block = edid + DETAILED_TIMING_DESCRIPTIONS_START;
+ 	for (i = 0; i < 4; i++, block+= DETAILED_TIMING_DESCRIPTION_SIZE) {
+ 		if (block[0] == 0x00 && block[1] == 0x00 && block[3] == 0xfa)
+-			num += get_dst_timing(block + 5, &mode[num]);
++			num += get_dst_timing(edid_ver, edid_rev, block + 5, &mode[num]);
++	}
++
++	/* how many additional extension blocks available */
++	if (edid[126] > 0 ) { 
++		if (edid[DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START] == 0x02) {
++			/* This block is CEA extension */
++			DPRINTK("----------------------------------------\n");
++			DPRINTK("   EIA/CEA-861 Information\n");
++			DPRINTK("   Revision number: %d\n", 
++						edid[DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START+1] );
++			DPRINTK("   DTV underscan: %s\n",
++						(edid[DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START+3] & 0x80 ) ?
++							"Supported" : "Not supported");
++			DPRINTK("   Basic audio: %s\n",
++						(edid[DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START+3] & 0x40 ) ?
++							"Supported" : "Not supported");
++
++			offset = edid[DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START + 2];
++			if (offset > 0) {
++				block = edid + DETAILED_TIMING_DESCRIPTIONS_BLOCK1_START + offset;
++
++				DPRINTK("   Detailed Timings\n");
++				for (i = 0; i < 5; i++, block+= DETAILED_TIMING_DESCRIPTION_SIZE) {
++					if (!(block[0] == 0x00 && block[1] == 0x00)) {
++						get_detailed_timing(block, &mode[num]);
++						num++;
++					}
++				}
++			}
++		}
+ 	}
+ 
+ 	/* Yikes, EDID data is totally useless */
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/modedb.c linux-2.6.31-ER1-efikamx.next/drivers/video/modedb.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/modedb.c	2009-12-12 18:53:04.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/modedb.c	2010-01-05 23:20:53.000000000 -0600
+@@ -265,20 +265,23 @@
+ 	NULL, 60, 1280, 800, 12048, 200, 64, 24, 1, 136, 3,
+ 	0, FB_VMODE_NONINTERLACED
+     }, 
+-	{ //norton /* 1280x720 @ 60 CEA-MODE 4 */
++	{ /* 1280x720 @ 60 CEA-MODE 4 */
+ 	  "1280x720-16@60", 60, 1280, 720, 13468, 220, 110, 20, 5, 40, 5,
+-	FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT | FB_SYNC_EXT, FB_VMODE_NONINTERLACED 
++	FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED 
+ 	},
+-	{ //norton /* 1280x720 @ 50 Hz CEA-MODE 19 */
++	{ /* 1280x720 @ 50 Hz CEA-MODE 19 */
+ 	  "1280x720-16@50", 50, 1280, 720, 13468, 220, 440, 20, 5, 40, 5,
+-	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT | FB_SYNC_EXT, FB_VMODE_NONINTERLACED 
++	FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED 
+ 	},
+-	{
+-       /* 720x576i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
++	{ /* 1280x768, 60Hz, 68.26MHz  */
++	"1280x768-16@60", 60, 1280, 768, 14650, 80, 48, 12, 3, 32, 7,
++	FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED 	
++	},
++	{ /* 720x576i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
+        NULL, 50, 720, 576, 74074, 64, 16, 39, 5, 64, 5,
+        0, FB_VMODE_INTERLACED
+-    }, {
+-       /* 800x520i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
++    },
++	{ /* 800x520i @ 50 Hz, 15.625 kHz hsync (PAL RGB) */
+        NULL, 50, 800, 520, 58823, 144, 64, 72, 28, 80, 5,
+        0, FB_VMODE_INTERLACED
+     },
+@@ -407,31 +410,10 @@
+ 	/* 33 1920x1440-75 VESA */
+ 	{ NULL, 75, 1920, 1440, 3367, 352, 144, 56, 1, 224, 3,
+ 	  FB_SYNC_VERT_HIGH_ACT, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
+-    { //norton /* 1280x720 @ 60 CEA-MODE 4 */
+-      NULL, 60, 1280, 720, 13468, 220, 110, 20, 5, 40, 5,
+-	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT | FB_SYNC_EXT, FB_VMODE_NONINTERLACED },
+-	{ //norton /* 1280x720 @ 50 Hz CEA-MODE 19 */
+-	  NULL, 50, 1280, 720, 13468, 220, 440, 20, 5, 40, 5,
+-	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT | FB_SYNC_EXT, FB_VMODE_NONINTERLACED },
+ };
+ EXPORT_SYMBOL(vesa_modes);
+ #endif /* CONFIG_FB_MODE_HELPERS */
+ 
+-static int my_atoi(const char *name)
+-{
+-    int val = 0;
+-
+-    for (;; name++) {
+-	switch (*name) {
+-	    case '0' ... '9':
+-		val = 10*val+(*name-'0');
+-		break;
+-	    default:
+-		return val;
+-	}
+-    }
+-}
+-
+ int fb_dump_mode( char *func_char, struct fb_videomode *mode)
+ {
+ 	printk( KERN_INFO  "%s geometry %u %u %u\n", 
+@@ -570,7 +552,7 @@
+ 		    namelen = i;
+ 		    if (!refresh_specified && !bpp_specified &&
+ 			!yres_specified) {
+-			refresh = my_atoi(&name[i+1]);
++				refresh = simple_strtol(&name[i+1], NULL, 10);
+ 			refresh_specified = 1;
+ 			if (cvt || rb)
+ 			    cvt = 0;
+@@ -580,7 +562,7 @@
+ 		case '-':
+ 		    namelen = i;
+ 		    if (!bpp_specified && !yres_specified) {
+-			bpp = my_atoi(&name[i+1]);
++				bpp = simple_strtol(&name[i+1], NULL, 10);
+ 			bpp_specified = 1;
+ 			if (cvt || rb)
+ 			    cvt = 0;
+@@ -589,7 +571,7 @@
+ 		    break;
+ 		case 'x':
+ 		    if (!yres_specified) {
+-			yres = my_atoi(&name[i+1]);
++				yres = simple_strtol(&name[i+1], NULL, 10);
+ 			yres_specified = 1;
+ 		    } else
+ 			goto done;
+@@ -616,11 +598,12 @@
+ 		    goto done;
+ 	    }
+ 	}
++		
+ 	if (i < 0 && yres_specified) {
+-	    xres = my_atoi(name);
++		    xres = simple_strtol(name, NULL, 10);
+ 	    res_specified = 1;
+ 	}
+-done:
++	done:
+ 	if (cvt) {
+ 	    struct fb_videomode cvt_mode;
+ 	    int ret;
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c linux-2.6.31-ER1-efikamx.next/drivers/video/mxc/mxcfb_sii9022.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c	2009-12-12 13:55:17.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/mxc/mxcfb_sii9022.c	2010-01-05 23:27:56.000000000 -0600
+@@ -39,15 +39,46 @@
+ #include <linux/mxcfb.h>
+ #include <linux/ipu.h>
+ #include <linux/clk.h>
++#include "../edid.h"
++#include "../arch/arm/mach-mx51/mx51_efikamx.h"
++
++
++#define DPRINTK printk
+ 
+ struct i2c_client *sii9022_client;
+ extern char vmode[32];
+-extern int mxcfb_di_clock_adjust(int hdmi_output, int video_mode, unsigned long rate);
++extern int mxcfb_di_clock_adjust(int hdmi_output, unsigned long rate);
++extern void fb_dump_modeline( struct fb_videomode *modedb, int num);
++extern void mxcfb_update_default_var(struct fb_var_screeninfo *var, 
++									struct fb_info *info, 
++									const struct fb_videomode *def_video_mode );
++void mxcfb_videomode_to_modelist(const struct fb_videomode *modedb, int num,
++			      struct list_head *head);
++
++extern int (*sii9022_func)( const char *procfs_buffer );
++
++#define HDMI_VMODE_DEFAULT	"1280x720-16@60"
+ 
+ #define HDMI_CTL_VIDEO_ENABLE	0x01
+ #define HDMI_CTL_AUDIO_ENABLE	0x02
+ #define HDMI_CTL_AUDIO_MUTE		0x04
+ #define HDMI_CTL_AUDIO_UMMUTE	0x08
++#define HDMI_CTL_DETECT_CHIP	0x10
++#define HDMI_CTL_DETECT_SINK	0x20
++#define HDMI_CTL_EDID_GET		0x40
++
++/* HDMI EDID Length */
++#define HDMI_EDID_MAX_LENGTH 256
++#define SI9022_REG_TPI_RQB 0xC7
++#define HDMI_SYS_CTRL_DATA_REG 0x1A
++
++/* HDMI Address */
++#define SI9022_I2CSLAVEADDRESS 0x39
++#define SI9022_EDIDI2CSLAVEADDRESS 0x50
++
++/* HDMI_SYS_CTRL_DATA_REG */
++#define TPI_SYS_CTRL_DDC_BUS_REQUEST (1 << 2)
++#define TPI_SYS_CTRL_DDC_BUS_GRANTED (1 << 1)
+ 
+ 
+ /* Stream Header Data */
+@@ -59,25 +90,39 @@
+ 
+ u8 hdmi_sh_value = 0;
+ 
++#define HDMI_XRES                      1280
++#define HDMI_YRES                      720
++#define HDMI_PIXCLOCK_MAX              74250
++#define VERTICAL_FREQ                  0x3C
++
++#define EDID_TIMING_DESCRIPTOR_SIZE            0x12
++#define EDID_DESCRIPTOR_BLOCK0_ADDRESS         0x36
++#define EDID_DESCRIPTOR_BLOCK1_ADDRESS         0x80
++#define EDID_SIZE_BLOCK0_TIMING_DESCRIPTOR     4   
++#define EDID_SIZE_BLOCK1_TIMING_DESCRIPTOR     4
++
++int hdmi_video_init = 0;
++extern u8 edid[256];
+ 
+ EXPORT_SYMBOL(sii9022_client);
+ 
+ int sii9022_hdmi_video_init(struct fb_var_screeninfo *var);
+ int sii9022_hdmi_audio_init(void);
+ int sii9022_reinit(struct fb_var_screeninfo *var);
++static int sii9022_handle_edid(struct i2c_client *client, char *edid, u16 len );
++extern int handle_edid2(struct i2c_adapter *adp, char *buffer, u16 len);
++void mxc_init_fb(void);
+ 
+ static void lcd_poweron(struct fb_info *info);
+ static void lcd_poweroff(void);
+ 
+-static void (*lcd_reset) (void);
+-static struct regulator *io_reg;
+-static struct regulator *core_reg;
+-extern int enable_hdmi;
++//static void (*lcd_reset) (void);
+ extern int enable_hdmi_spdif;
+ extern int ce_mode;
+ extern int video_mode;
+ extern int clock_auto;
+ extern int hdmi_audio;
++extern int video_output;
+ 
+ static struct fb_videomode video_modes_ce_mode_4 = {
+      /* 720p60 TV output */
+@@ -113,19 +158,20 @@
+      .vmode         = FB_VMODE_NONINTERLACED,
+ };
+ 
+-static struct fb_videomode video_modes_720p60_user = {
+-	.name		   = "720P60",
++/* non-standard 720p timing but work for full screen movie playback */
++static struct fb_videomode video_modes_1280x720_65 = {
++	.name		   = "1280x720@65",
+ 	.refresh	   = 60,
+-	.xres		   = 1124,
+-	.yres		   = 644,
+-	.pixclock	   = 13468,
+-	.left_margin   = 298,
+-	.right_margin  = 148,
+-	.upper_margin  = 57,
+-	.lower_margin  = 44,
+-	.hsync_len	   = 80,
+-	.vsync_len	   = 5,
+-	.sync		   = FB_SYNC_BROADCAST | FB_SYNC_EXT, //FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT |FB_SYNC_EXT,
++	.xres 			= 1280,
++	.yres 			= 720,
++	.pixclock 		= 16260,
++	.left_margin 	= 32,
++	.right_margin 	= 48,
++	.upper_margin	= 7,
++	.lower_margin 	= 3,
++	.hsync_len 		= 32,
++	.vsync_len 		= 6,
++	.sync 			= FB_SYNC_OE_LOW_ACT,
+ 	.vmode		   = FB_VMODE_NONINTERLACED,
+ };
+ 
+@@ -149,157 +195,76 @@
+ 
+ static struct fb_var_screeninfo var;
+ 
+-static void lcd_init_fb(struct fb_info *info)
++#if 0 // silence compiler warning because we don't use this right now
++static int fb_dump_var( struct device *dev, const char *func_char, struct fb_var_screeninfo *var)
+ {
+-	memset(&var, 0, sizeof(var));
+-
+-	printk("*** sii9022 %s\n", __func__);
+-	/* default vmode if video_mode == 0 */
+-	if ( vmode[0] == 0 )
+-		strcpy( vmode, "1024x768-16@60" );
+-
+-	if( video_mode == 4 )
+-		fb_videomode_to_var(&var, &video_modes_ce_mode_4);
+-	//	-> 1280x720-72Hz, no console, overscan
+-	else if ( video_mode == 19 )
+-		fb_videomode_to_var(&var, &video_modes_ce_mode_19);
+-	//	-> 720p-60Hz, same with console, overscan
+-	else if ( video_mode == 3 )
+-		fb_videomode_to_var(&var, &video_modes_720p60_user);
+-	
+-	else if (video_mode == 1 || video_mode == 2 )
+-		fb_videomode_to_var(&var, &video_modes_1024x768_60);
+-	else 
+-		fb_find_mode(&var, info, vmode, NULL, 0, NULL, 16);
+-		//fb_find_mode(&var, info, "1280x720MR-16@60", NULL, 0, NULL, 16);
+-		//	-> 1280x720-62Hz, same with console, full screen
+-
+-	mxcfb_di_clock_adjust( 1, video_mode, var.pixclock );
+-
+-	var.activate = FB_ACTIVATE_ALL;
++	if ( var == NULL )	
++		return -1;
+ 
+-	acquire_console_sem();
+-	info->flags |= FBINFO_MISC_USEREVENT;
+-	fb_set_var(info, &var);
+-	info->flags &= ~FBINFO_MISC_USEREVENT;
+-	release_console_sem();
++	dev_dbg( dev, "%s geometry %u %u %u %u\n", 
++	  func_char,  var->xres, var->yres, var->xres_virtual, var->yres_virtual);
++	dev_dbg( dev, "%s offset %u %u %u %u %u\n",
++	  func_char, var->xoffset, var->yoffset, var->height, var->width, var->bits_per_pixel);
++	dev_dbg( dev, "%s timings %u %u %u %u %u %u %u\n",
++	  func_char, var->pixclock, var->left_margin, var->right_margin, 
++	  var->upper_margin, var->lower_margin, var->hsync_len, var->vsync_len ); 	
++	dev_dbg( dev, "%s accel_flags %u sync %u vmode %u\n",
++	  func_char, var->accel_flags, var->sync, var->vmode );	
+ }
+-
+-static int lcd_fb_event(struct notifier_block *nb, unsigned long val, void *v)
++#endif 
++static int sii9022_handle_edid(struct i2c_client *client, char *edid, u16 len )
+ {
+-	struct fb_event *event = v;
++	int err = 0;
++	u8 val = 0;
++	int retries = 0;
+ 
+-	printk("*** sii9022 %s\n", __func__);
++	len = (len < HDMI_EDID_MAX_LENGTH) ? len : HDMI_EDID_MAX_LENGTH;
++	memset(edid, 0, len);
+ 
+-	if (strcmp(event->info->fix.id, "DISP3 BG")) {
+-		return 0;
+-	}
++	i2c_smbus_write_byte_data(sii9022_client, SI9022_REG_TPI_RQB, 0x00);
+ 
+-	switch (val) {
+-	case FB_EVENT_FB_REGISTERED:
+-		lcd_init_fb(event->info);
+-		lcd_poweron(event->info);
+-		break;
+-	case FB_EVENT_BLANK:
+-		if (*((int *)event->data) == FB_BLANK_UNBLANK) {
+-			lcd_poweron(event->info);
+-		} else {
+-			lcd_poweroff();
+-		}
+-		break;
++	val = i2c_smbus_read_byte_data(sii9022_client, HDMI_SYS_CTRL_DATA_REG);
++	val |= TPI_SYS_CTRL_DDC_BUS_REQUEST;
++	err = i2c_smbus_write_byte_data(sii9022_client, HDMI_SYS_CTRL_DATA_REG, val);
++	if (err < 0) {
++		dev_printk( KERN_INFO, &sii9022_client->dev, "write DDC Bus req err!\n");
++		return err;
+ 	}
+-	return 0;
+-}
+ 
+-static struct notifier_block nb = {
+-	.notifier_call = lcd_fb_event,
+-};
+-
+-/*!
+- * This function is called whenever the SPI slave device is detected.
+- *
+- * @param	spi	the SPI slave device
+- *
+- * @return 	Returns 0 on SUCCESS and error on FAILURE.
+- */
+-static int __devinit lcd_probe(struct device *dev)
+-{
+-	int i;
+-	struct mxc_lcd_platform_data *plat = dev->platform_data;
+-
+-	printk("*** sii9022 %s\n", __func__);
+-
+-	printk( "@_@ %s vmode=%s video-mode=%d ce-mode=%d clock_auto=%d\n", 
+-	  __func__, vmode, video_mode, ce_mode, clock_auto);
++	/* polling to grant ddc bus access */
++	val = 0;
++	do {
++		val = i2c_smbus_read_byte_data(sii9022_client, HDMI_SYS_CTRL_DATA_REG);
++		if (retries++ > 20) {
++			dev_printk( KERN_INFO, &sii9022_client->dev, "fail to poll ddc bus access!\n");
++			return err;
++		}
++	} while ((val & TPI_SYS_CTRL_DDC_BUS_GRANTED) == 0);
++
++	/* grant ddc bus access */
++	val |= TPI_SYS_CTRL_DDC_BUS_REQUEST | TPI_SYS_CTRL_DDC_BUS_GRANTED;
++	err = i2c_smbus_write_byte_data(sii9022_client, HDMI_SYS_CTRL_DATA_REG, val);
++	if (err < 0) {
++		dev_printk( KERN_INFO, &sii9022_client->dev, "fail to grant ddc bus!\n");
++		return err;
++	}
++
++	/* read EDID info */
++	client->addr = SI9022_EDIDI2CSLAVEADDRESS;	//edid addr=0x50,  i2c slave addr=0x39
++	err = handle_edid2( client->adapter, edid, len );
+ 
+-#if 0 /* NEKO */
+-	if (plat) {
+ 		/*
+-		io_reg = regulator_get(dev, plat->io_reg);
+-		if (!IS_ERR(io_reg)) {
+-			regulator_set_voltage(io_reg, 1800000);
+-			regulator_enable(io_reg);
+-		}
+-		core_reg = regulator_get(dev, plat->core_reg);
+-		if (!IS_ERR(core_reg)) {
+-			regulator_set_voltage(core_reg, 1200000);
+-			regulator_enable(core_reg);
+-		}
++	  * sil9022_blockread_reg() completely fail to read
++	  * i2c_smbus_read_i2c_block_data() only read 32 bytes!
+ 		*/
+-		lcd_reset = plat->reset;
+-		if (lcd_reset)
+-			lcd_reset();
+-	}
+-#endif
+-	for (i = 0; i < num_registered_fb; i++) {
+-		if (strcmp(registered_fb[i]->fix.id, "DISP3 BG") == 0) {
+-			lcd_init_fb(registered_fb[i]);
+-			fb_show_logo(registered_fb[i], 0);
+-			lcd_poweron(registered_fb[i]);
+-		}
+-	}
+ 
+-	if( enable_hdmi == 0 ) {
+-		return -1;
+-	}
+-	if ( sii9022_reinit(&var) < 0 ) {
+-		printk("init hdmi fail!\n");
+-		return -1;
+-	}
++	/* release ddc bus access */
++	client->addr = SI9022_I2CSLAVEADDRESS;
++	val &= ~(TPI_SYS_CTRL_DDC_BUS_REQUEST | TPI_SYS_CTRL_DDC_BUS_GRANTED);
++	i2c_smbus_write_byte_data(sii9022_client, HDMI_SYS_CTRL_DATA_REG, val);
+ 
+-	fb_register_client(&nb);
++	return err ;
+ 
+-	return 0;
+-}
+-
+-static int __devinit sii9022_probe(struct i2c_client *client, const struct i2c_device_id *id)
+-{
+-	sii9022_client = client;
+-	
+-	printk("*** %s\n", __func__);
+-
+-	return lcd_probe(&client->dev);
+-}
+-
+-static int __devexit sii9022_remove(struct device *dev)
+-{
+-	fb_unregister_client(&nb);
+-	lcd_poweroff();
+-#if 0
+-	regulator_put(io_reg);
+-	regulator_put(core_reg);
+-#endif
+-	return 0;
+-}
+-
+-static int sii9022_suspend(struct i2c_client *client, pm_message_t message)
+-{
+-	return 0;
+-}
+-
+-static int sii9022_resume(struct i2c_client *client)
+-{
+-	return 0;
+ }
+ 
+ int sii9022_hdmi_audio_ctl(int mute)
+@@ -482,6 +447,9 @@
+ 	int i;
+ 	int vmap_idx = 0;
+ 	
++	if ( var == NULL )
++		return -1;
++	
+ 	// Power up, wakeup to D0
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x1E, 0x00);
+ 
+@@ -494,7 +462,7 @@
+ 	//i2c_smbus_write_byte_data(sii9022_client, 0xBD, 0x82);
+ 	//i2c_smbus_write_byte_data(sii9022_client, 0xBE, 0x35);
+ 
+-	// Video Imput Mode
++	// Video Input Mode
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x09, 0x00); 	// All 8 bit mode, Auto-selected by [1:0]; RGB
+ 	// Video Output Mode
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x0A, 0x00);	//BT.601, Auto-selected by[1:0], RGB HDMI mode
+@@ -544,7 +512,7 @@
+ 
+ 	// burst write 720p60 AVI infoframe to Reg 0c-19 
+ 	//i2c_smbus_write_block_data(sii9022_client, 0x0C, 14, avi_info );
+-	vmap_idx = video_mode_map_get( var->xres, var->yres, refresh_rate );
++	vmap_idx = video_mode_map_get( var->xres, var->yres, (refresh_rate / 100) );
+ 	cksum = 0x82 + 0x02 + 13;
+ 	avi_info[2] = vmode_map[vmap_idx].aspect_ratio; //16:9 , 4:3 
+ 	avi_info[4] = vmode_map[vmap_idx].video_code; //video code 720p@60: 4, 720p@50: 19  
+@@ -557,21 +525,22 @@
+ 	}
+ 
+ 	//sii9022_hdmi_audio_init();
+-
++	dev_printk( KERN_INFO, &sii9022_client->dev, "vmap idx=%d vcode=%d\n",
++												vmap_idx, avi_info[4] );
+ 	//TURN on TMDS 
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x1A, 0x01);               
+ 
+ 	return 0;
+ }
+ 
+-int sii9022_hdmi_ctl(int cmd, struct fb_var_screeninfo *var)
++int sii9022_hdmi_ctl(int cmd, void *opt)
+ {
+ 	int dat;
+ 	
+ 	// Set 9022 in hardware TPI mode on and jump out of D3 state
+ 	//msleep(100);
+ 	dat = 0x00;
+-	i2c_smbus_write_byte_data(sii9022_client, 0xC7, 0x00);		// enable access to 9022 other regs
++	i2c_smbus_write_byte_data(sii9022_client, SI9022_REG_TPI_RQB, 0x00);		// enable access to 9022 other regs
+ 	
+ 	// read device ID
+ 	do {
+@@ -582,6 +551,41 @@
+ 		}
+ 	} while( dat != 0xB0 );
+ 
++	if (cmd & HDMI_CTL_DETECT_CHIP)
++		return 0;
++
++	if ( cmd & HDMI_CTL_DETECT_SINK ) {
++		//printk("read device id = 0x%02X\n", dat);		
++		// monitor detection, reg0x3D[2] 1=monitor connected
++		dat = i2c_smbus_read_byte_data(sii9022_client, 0x3D);
++		printk("*** monitor is %s detected\n", dat & 0x04 ? "" : "not" );
++
++		if ( dat & 0x04 )
++			return 0;
++
++		return -2;
++	}
++
++	if( cmd & HDMI_CTL_EDID_GET ) {
++		int err = 0;
++		
++		err = sii9022_handle_edid( sii9022_client, edid, sizeof(edid));
++		if ( err == 0 ) {
++			struct fb_monspecs *monspecs = (struct fb_monspecs *)opt;
++
++			fb_edid_to_monspecs(edid, monspecs);
++
++			if ( monspecs->modedb_len ) {
++				//fb_videomode_to_modelist( monspecs.modedb, monspecs.modedb_len,
++				//					 &info->modelist);
++
++				printk("Monitor/TV supported modelines\n");
++				fb_dump_modeline( monspecs->modedb, monspecs->modedb_len );
++			}
++		}
++		return 0;
++	}
++	
+ 	// Power up, wakeup to D0
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x1E, 0x00);
+ 	
+@@ -589,13 +593,7 @@
+ 	i2c_smbus_write_byte_data(sii9022_client, 0x1A, 0x01);
+ 
+ 	if( cmd & HDMI_CTL_VIDEO_ENABLE) {
+-
+-		printk("read device id = 0x%02X\n", dat);		
+-		// monitor detection, reg0x3D[2] 1=monitor connected
+-		dat = i2c_smbus_read_byte_data(sii9022_client, 0x3D);
+-		printk("@_@ Monitor is %s detected\n", dat & 0x04 ? "" : "not" );
+-
+-		sii9022_hdmi_video_init(var);
++		sii9022_hdmi_video_init((struct fb_var_screeninfo *)opt);
+ 	}
+ 
+ 	if( cmd & HDMI_CTL_AUDIO_ENABLE)
+@@ -617,11 +615,16 @@
+ int sii9022_hdmi_ctl_parse( const char *procfs_buffer )
+ {
+ 	int status = 0;
++	struct fb_monspecs monspecs;
+ 	
+ 	if ( strncmp( procfs_buffer, "hdmi_audio_off", 14)==0 )
+ 		status = sii9022_hdmi_ctl(HDMI_CTL_AUDIO_MUTE, 0 ); //mute 
+ 	else if ( strncmp( procfs_buffer, "hdmi_audio_on", 13)==0 )
+ 		status = sii9022_hdmi_ctl(HDMI_CTL_AUDIO_UMMUTE, 0); //unmute 
++	else if ( strncmp( procfs_buffer, "hdmi_edid_get", 13)==0 ) {
++		status = sii9022_hdmi_ctl(HDMI_CTL_EDID_GET, (void *)&monspecs);
++		fb_destroy_modedb(monspecs.modedb);
++	}
+ 
+ 	return status;		
+ }
+@@ -648,6 +651,99 @@
+ 	return 0;
+ }
+ 
++static void lcd_init_fb(struct fb_info *info)
++{
++	int err = 0;
++	
++	printk("*** sii9022 %s\n", __func__);
++
++	memset(&var, 0, sizeof(var));
++
++	err = sii9022_handle_edid( sii9022_client, edid, sizeof(edid));
++
++	if ( err == 0 ) {
++		fb_edid_to_monspecs(edid, &info->monspecs);
++
++		if ( info->monspecs.modedb_len ) {
++			printk("Monitor/TV supported modelines\n");
++			fb_dump_modeline( info->monspecs.modedb, info->monspecs.modedb_len );
++
++		
++			mxcfb_videomode_to_modelist(info->monspecs.modedb, info->monspecs.modedb_len,
++							 &info->modelist);
++		}
++	}
++	/*
++	  * if customized video_mode == xx use video_mode_xx
++	  * else if specfied video mode on booting parameter, find it timing from modelist
++	  * else find 720p timing from modelist.
++	  * modelist is generated from edid. if no edid, use modedb in modedb.c
++	  */
++	if( video_mode == 4 )
++		fb_videomode_to_var(&var, &video_modes_ce_mode_4);
++
++	else if ( video_mode == 19 )
++		fb_videomode_to_var(&var, &video_modes_ce_mode_19);
++
++	else if (video_mode == 2 )
++		fb_videomode_to_var(&var, &video_modes_1024x768_60);
++
++	else if ( video_mode == 3 )
++		fb_videomode_to_var(&var, &video_modes_1280x720_65);
++	
++	else {
++
++		mxcfb_update_default_var( &var, info, &video_modes_ce_mode_4 );
++	}
++
++	mxcfb_di_clock_adjust( video_output, var.pixclock );
++
++	var.activate = FB_ACTIVATE_ALL;
++
++	acquire_console_sem();
++	info->flags |= FBINFO_MISC_USEREVENT;
++	fb_set_var(info, &var);
++	info->flags &= ~FBINFO_MISC_USEREVENT;
++	release_console_sem();
++
++//	fb_destroy_modedb(info->monspecs.modedb);
++//	info->monspecs.modedb = NULL;
++
++}
++
++static int lcd_fb_event(struct notifier_block *nb, unsigned long val, void *v)
++{
++	struct fb_event *event = v;
++
++	printk("*** sii9022 %s\n", __func__);
++
++	if (strcmp(event->info->fix.id, "DISP3 BG")) {
++		return 0;
++	}
++
++	switch (val) {
++	case FB_EVENT_FB_REGISTERED:
++		lcd_init_fb(event->info);
++		lcd_poweron(event->info);
++		break;
++	case FB_EVENT_BLANK:
++		if (*((int *)event->data) == FB_BLANK_UNBLANK) {
++			lcd_poweron(event->info);
++		} else {
++			lcd_poweroff();
++		}
++		break;
++	}
++	return 0;
++}
++
++static struct notifier_block nb = {
++	.notifier_call = lcd_fb_event,
++};
++
++
++
++
+ static int lcd_on;
+ /*
+  * Send Power On commands to L4F00242T03
+@@ -678,7 +774,93 @@
+ 	lcd_on = 0;
+ }
+ 
++/*!
++ * This function is called whenever the SPI slave device is detected.
++ *
++ * @param	spi	the SPI slave device
++ *
++ * @return 	Returns 0 on SUCCESS and error on FAILURE.
++ */
++static int __devinit lcd_probe(struct device *dev)
++{
++	int i;
++//	struct mxc_lcd_platform_data *plat = dev->platform_data;
++
++	printk("*** sii9022 %s\n", __func__);
++
++#if 0 /* this never ever compiled - Neko */
++	if (plat) {
++		/*
++		io_reg = regulator_get(dev, plat->io_reg);
++		if (!IS_ERR(io_reg)) {
++			regulator_set_voltage(io_reg, 1800000);
++			regulator_enable(io_reg);
++		}
++		core_reg = regulator_get(dev, plat->core_reg);
++		if (!IS_ERR(core_reg)) {
++			regulator_set_voltage(core_reg, 1200000);
++			regulator_enable(core_reg);
++		}
++		*/
++		lcd_reset = plat->reset;
++		if (lcd_reset)
++			lcd_reset();
++	}
++#endif
++
++	for (i = 0; i < num_registered_fb; i++) {
++		if (strcmp(registered_fb[i]->fix.id, "DISP3 BG") == 0) {
++			lcd_init_fb(registered_fb[i]);
++			fb_show_logo(registered_fb[i], 0);
++			lcd_poweron(registered_fb[i]);
++		}
++	}
+ 
++	if ( sii9022_reinit(&var) < 0 ) {
++		printk("init hdmi fail!\n");
++		return -1;
++	}
++	
++	fb_register_client(&nb);
++
++	return 0;
++}
++
++static int __devinit sii9022_probe(struct i2c_client *client, const struct i2c_device_id *id)
++{
++	sii9022_client = client;
++	
++	printk("*** %s\n", __func__);
++
++	/* if HDMI sink is detected and output == AUTO, set to HDMI output */
++	if ( sii9022_hdmi_ctl( HDMI_CTL_DETECT_SINK, NULL ) == 0 ) {
++		video_output = VIDEO_OUT_STATIC_HDMI;
++	}
++
++	/* set to HDMI output */
++	video_output = VIDEO_OUT_STATIC_HDMI;
++
++	mxc_init_fb();
++
++	return lcd_probe(&client->dev);
++}
++
++static int __devexit sii9022_remove(struct i2c_client *client)
++{
++	fb_unregister_client(&nb);
++	lcd_poweroff();
++	return 0;
++}
++
++static int sii9022_suspend(struct i2c_client *client, pm_message_t message)
++{
++	return 0;
++}
++
++static int sii9022_resume(struct i2c_client *client)
++{
++	return 0;
++}
+ 
+ static const struct i2c_device_id sii9022_id[] = {
+ 	{ "sii9022", 0 },
+@@ -699,11 +881,13 @@
+ 
+ static int __init sii9022_init(void)
+ {
++	sii9022_func = sii9022_hdmi_ctl_parse;
+ 	return i2c_add_driver(&sii9022_driver);
+ }
+ 
+ static void __exit sii9022_exit(void)
+ {
++	sii9022_func = NULL;
+ 	i2c_del_driver(&sii9022_driver);
+ }
+ 
+diff -urNBb linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxc_ipuv3_fb.c linux-2.6.31-ER1-efikamx.next/drivers/video/mxc/mxc_ipuv3_fb.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxc_ipuv3_fb.c	2009-12-12 18:54:48.000000000 -0600
++++ linux-2.6.31-ER1-efikamx.next/drivers/video/mxc/mxc_ipuv3_fb.c	2010-01-05 23:23:04.000000000 -0600
+@@ -47,12 +48,14 @@
+ #include <asm/mach-types.h>
+ #include <asm/uaccess.h>
+ #include <mach/hardware.h>
++#include <../arch/arm/mach-mx51/mx51_efikamx.h>
+ 
+-extern int mxcfb_di_clock_adjust(int hdmi_output, int video_mode, unsigned long pixel_clock);
++extern int mxcfb_di_clock_adjust(int hdmi_output, unsigned long pixel_clock);
+ extern int cs8556_reinit(struct fb_var_screeninfo *var);
+ extern int sii9022_reinit(struct fb_var_screeninfo *var);
+-extern int enable_hdmi;
++extern int video_output;
+ extern int mxc_debug;
++extern int clock_auto;
+ extern int extsync;
+ 
+ int fb_dump_var( struct device *dev, const char *func_char, struct fb_var_screeninfo *var)
+@@ -60,22 +63,21 @@
+ 	if ( var == NULL )
+ 		return -1;
+ 
+-	dev_dbg( dev, "%s geometry %u %u %u %u\n", 
++	printk(KERN_INFO "%s geometry %u %u %u %u\n", 
+ 	  func_char,  var->xres, var->yres, var->xres_virtual, var->yres_virtual);
+-	dev_dbg( dev, "%s offset %u %u %u %u %u\n",
++	printk(KERN_INFO "%s offset %u %u %u %u %u\n",
+ 	  func_char, var->xoffset, var->yoffset, var->height, var->width, var->bits_per_pixel);
+ 
+-	dev_dbg( dev, "%s timings %u %u %u %u %u %u %u\n",
++	printk(KERN_INFO "%s timings %u %u %u %u %u %u %u\n",
+ 	  func_char, var->pixclock, var->left_margin, var->right_margin, 
+ 	  var->upper_margin, var->lower_margin, var->hsync_len, var->vsync_len );
+ 
+-	dev_dbg( dev, "%s accel_flags %u sync %u vmode %u\n",
++	printk(KERN_INFO "%s accel_flags %u sync %u vmode %u\n",
+ 	  func_char, var->accel_flags, var->sync, var->vmode );
+ 
+ 	return 0;
+ }
+-
+-#if 0 /* silence compiler warning since we don't use this */
++#if 0 /* silence compiler warning since we don't use this right now */
+ static int fb_dump_mode( struct device *dev, const char *func_char, struct fb_videomode *mode)
+ {
+ 	if ( mode == NULL )
+@@ -86,8 +88,8 @@
+ 	dev_dbg( dev, "%s timings %u %u %u %u %u %u %u\n",
+ 	  func_char, mode->pixclock, mode->left_margin, mode->right_margin, 
+ 	  mode->upper_margin, mode->lower_margin, mode->hsync_len, mode->vsync_len );
+-	dev_dbg( dev, "%s flag %u sync %u vmode %u\n",
+-	  func_char, mode->flag, mode->sync, mode->vmode );
++	dev_dbg( dev, "%s flag %u sync %u vmode %u %s\n",
++	  func_char, mode->flag, mode->sync, mode->vmode, mode->flag & FB_MODE_IS_FIRST ? "preferred" : "" ); 
+ 
+ 	return 0;
+ }
+@@ -137,7 +138,7 @@
+ 	BOTH_OFF
+ };
+ 
+-static char *fb_mode;
++static char *fb_mode = NULL;
+ static unsigned long default_bpp = 16;
+ static bool g_dp_in_use;
+ LIST_HEAD(fb_alloc_list);
+@@ -187,23 +188,9 @@
+ 	fix->xpanstep = 1;
+ 	fix->ypanstep = 1;
+ 
+-#if defined(CONFIG_MACH_MX51_EFIKAMX)
+-	if( extsync )
++	if( clock_auto && extsync )
+ 		var->sync |= FB_SYNC_EXT;	/* x window need it otherwise refresh rate will become bigger than user specified */
+ 	
+-	//mxcfb_di_clock_adjust( enable_hdmi, 0, var->pixclock );
+-	//play movie by totem will cause pixelclk=217013 rate=18432000
+-
+-	if ( enable_hdmi ) {
+-		//sii9022_reinit( var ); //cause no response after "done, booting the kernel"
+-	}
+-#if defined(CONFIG_FB_MXC_CS8556)
+-	else if ( enable_hdmi == 0 ) { /* VGA */
+-		cs8556_reinit( var );
+-	}
+-#endif /* CONFIG_FB_MXC_CS8556 */
+-#endif
+-	
+ 	return 0;
+ }
+ 
+@@ -1626,15 +1613,6 @@
+ 	if (ret)
+ 		dev_err(&pdev->dev, "Error %d on creating file\n", ret);
+ 
+-	dev_err(&pdev->dev,"pdev->id=%d name=%s\n", pdev->id, pdev->name);
+-	if( fbi ) {
+-		dev_err(&pdev->dev, "fbi->fix.id=%s \n", fbi->fix.id );
+-		if( fbi->mode )
+-			dev_err(&pdev->dev,"%s pix=%u %ux%u@%u\n", 
+-				fbi->mode->name, fbi->mode->pixclock,
+-				fbi->mode->xres, fbi->mode->yres, fbi->mode->refresh );
+-	}		
+-		
+ 	return 0;
+ 
+ err2:

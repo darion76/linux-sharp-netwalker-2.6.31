@@ -1,0 +1,29 @@
+diff --git a/Makefile b/Makefile
+index fe266ee..c66c167 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,7 +1,7 @@
+ VERSION = 2
+ PATCHLEVEL = 6
+ SUBLEVEL = 31
+-EXTRAVERSION = .10
++EXTRAVERSION = .11
+ NAME = Man-Eating Seals of Antiquity
+ 
+ # *DOCUMENTATION*
+diff --git a/drivers/net/wireless/rt2x00/rt61pci.c b/drivers/net/wireless/rt2x00/rt61pci.c
+index 0d99314..49b29ff 100644
+--- a/drivers/net/wireless/rt2x00/rt61pci.c
++++ b/drivers/net/wireless/rt2x00/rt61pci.c
+@@ -2546,11 +2546,6 @@ static int rt61pci_probe_hw_mode(struct rt2x00_dev *rt2x00dev)
+ 	unsigned int i;
+ 
+ 	/*
+-	 * Disable powersaving as default.
+-	 */
+-	rt2x00dev->hw->wiphy->ps_default = false;
+-
+-	/*
+ 	 * Initialize all hw fields.
+ 	 */
+ 	rt2x00dev->hw->flags =

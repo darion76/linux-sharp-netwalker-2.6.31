@@ -1,0 +1,968 @@
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_drv.c linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_drv.c
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_drv.c	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_drv.c	2010-01-24 15:55:22.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * Compressed RAM based swap device
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+@@ -24,15 +24,21 @@
+ #include <linux/genhd.h>
+ #include <linux/highmem.h>
+ #include <linux/lzo.h>
+-#include <linux/mutex.h>
+ #include <linux/string.h>
+ #include <linux/swap.h>
+ #include <linux/swapops.h>
+ #include <linux/vmalloc.h>
+ #include <linux/version.h>
+ 
++#include "compat.h"
+ #include "ramzswap_drv.h"
+ 
++/* Module params (documentation at end) */
++static unsigned int num_devices;
++static unsigned long disksize_kb;
++static unsigned long memlimit_kb;
++static char backing_swap[MAX_SWAP_NAME_LEN];
++
+ /* Globals */
+ static int ramzswap_major;
+ static struct ramzswap *devices;
+@@ -44,9 +50,6 @@
+  */
+ static unsigned int max_zpage_size;
+ 
+-/* Module params (documentation at end) */
+-static unsigned int num_devices;
+-
+ static int rzs_test_flag(struct ramzswap *rzs, u32 index,
+ 			enum rzs_pageflags flag)
+ {
+@@ -222,7 +225,7 @@
+ 	return ret;
+ }
+ 
+-void ramzswap_ioctl_get_stats(struct ramzswap *rzs,
++static void ramzswap_ioctl_get_stats(struct ramzswap *rzs,
+ 			struct ramzswap_ioctl_stats *s)
+ {
+ 	strncpy(s->backing_swap_name, rzs->backing_swap_name,
+@@ -240,7 +243,8 @@
+ 
+ 	mem_used = xv_get_total_size_bytes(rzs->mem_pool)
+ 			+ (rs->pages_expand << PAGE_SHIFT);
+-	succ_writes = rs->num_writes - rs->failed_writes;
++	succ_writes = stat64_read(rzs, &rs->num_writes) -
++			stat64_read(rzs, &rs->failed_writes);
+ 
+ 	if (succ_writes && rs->pages_stored) {
+ 		good_compress_perc = rs->good_compress * 100
+@@ -249,11 +253,12 @@
+ 					/ rs->pages_stored;
+ 	}
+ 
+-	s->num_reads = rs->num_reads;
+-	s->num_writes = rs->num_writes;
+-	s->failed_reads = rs->failed_reads;
+-	s->failed_writes = rs->failed_writes;
+-	s->invalid_io = rs->invalid_io;
++	s->num_reads = stat64_read(rzs, &rs->num_reads);
++	s->num_writes = stat64_read(rzs, &rs->num_writes);
++	s->failed_reads = stat64_read(rzs, &rs->failed_reads);
++	s->failed_writes = stat64_read(rzs, &rs->failed_writes);
++	s->invalid_io = stat64_read(rzs, &rs->invalid_io);
++	s->notify_free = stat64_read(rzs, &rs->notify_free);
+ 	s->pages_zero = rs->pages_zero;
+ 
+ 	s->good_compress_pct = good_compress_perc;
+@@ -265,8 +270,8 @@
+ 	s->compr_data_size = rs->compr_size;
+ 	s->mem_used_total = mem_used;
+ 
+-	s->bdev_num_reads = rs->bdev_num_reads;
+-	s->bdev_num_writes = rs->bdev_num_writes;
++	s->bdev_num_reads = stat64_read(rzs, &rs->bdev_num_reads);
++	s->bdev_num_writes = stat64_read(rzs, &rs->bdev_num_writes);
+ 	}
+ #endif /* CONFIG_RAMZSWAP_STATS */
+ }
+@@ -480,7 +486,7 @@
+ 		goto out;
+ 	}
+ 
+-	pr_info("Using backing swap device: %s\n", rzs->backing_swap_name);
++	pr_debug("Using backing swap device: %s\n", rzs->backing_swap_name);
+ 
+ 	swap_file = filp_open(rzs->backing_swap_name,
+ 				O_RDWR | O_LARGEFILE, 0);
+@@ -502,6 +508,10 @@
+ 			goto bad_param;
+ 		}
+ 		disksize = i_size_read(inode);
++		if (!disksize) {
++			pr_err("Error reading backing swap size.\n");
++			goto bad_param;
++		}
+ 	} else if (S_ISREG(inode->i_mode)) {
+ 		bdev = inode->i_sb->s_bdev;
+ 		if (IS_SWAPFILE(inode)) {
+@@ -519,7 +529,6 @@
+ 	rzs->swap_file = swap_file;
+ 	rzs->backing_swap = bdev;
+ 	rzs->disksize = disksize;
+-	BUG_ON(!rzs->disksize);
+ 
+ 	return 0;
+ 
+@@ -537,7 +546,7 @@
+  * Map logical page number 'pagenum' to physical page number
+  * on backing swap device. For block device, this is a nop.
+  */
+-u32 map_backing_swap_page(struct ramzswap *rzs, u32 pagenum)
++static u32 map_backing_swap_page(struct ramzswap *rzs, u32 pagenum)
+ {
+ 	u32 skip_pages, entries_per_page;
+ 	size_t delta, se_offset, skipped;
+@@ -593,9 +602,13 @@
+ 	u32 offset = rzs->table[index].offset;
+ 
+ 	if (unlikely(!page)) {
++		/*
++		 * No memory is allocated for zero filled pages.
++		 * Simply clear zero page flag.
++		 */
+ 		if (rzs_test_flag(rzs, index, RZS_ZERO)) {
+ 			rzs_clear_flag(rzs, index, RZS_ZERO);
+-			stat_dec(rzs->stats.pages_zero);
++			stat_dec(&rzs->stats.pages_zero);
+ 		}
+ 		return;
+ 	}
+@@ -604,7 +617,7 @@
+ 		clen = PAGE_SIZE;
+ 		__free_page(page);
+ 		rzs_clear_flag(rzs, index, RZS_UNCOMPRESSED);
+-		stat_dec(rzs->stats.pages_expand);
++		stat_dec(&rzs->stats.pages_expand);
+ 		goto out;
+ 	}
+ 
+@@ -614,11 +627,11 @@
+ 
+ 	xv_free(rzs->mem_pool, page, offset);
+ 	if (clen <= PAGE_SIZE / 2)
+-		stat_dec(rzs->stats.good_compress);
++		stat_dec(&rzs->stats.good_compress);
+ 
+ out:
+ 	rzs->stats.compr_size -= clen;
+-	stat_dec(rzs->stats.pages_stored);
++	stat_dec(&rzs->stats.pages_stored);
+ 
+ 	rzs->table[index].page = NULL;
+ 	rzs->table[index].offset = 0;
+@@ -680,8 +693,8 @@
+ 	 */
+ 	if (rzs->backing_swap) {
+ 		u32 pagenum;
+-		stat_dec(rzs->stats.num_reads);
+-		stat_inc(rzs->stats.bdev_num_reads);
++		stat64_dec(rzs, &rzs->stats.num_reads);
++		stat64_inc(rzs, &rzs->stats.bdev_num_reads);
+ 		bio->bi_bdev = rzs->backing_swap;
+ 
+ 		/*
+@@ -719,7 +732,7 @@
+ 	struct zobj_header *zheader;
+ 	unsigned char *user_mem, *cmem;
+ 
+-	stat_inc(rzs->stats.num_reads);
++	stat64_inc(rzs, &rzs->stats.num_reads);
+ 
+ 	page = bio->bi_io_vec[0].bv_page;
+ 	index = bio->bi_sector >> SECTORS_PER_PAGE_SHIFT;
+@@ -731,7 +744,7 @@
+ 	if (!rzs->table[index].page)
+ 		return handle_ramzswap_fault(rzs, bio);
+ 
+-	/* Page is stored uncompressed since its incompressible */
++	/* Page is stored uncompressed since it's incompressible */
+ 	if (unlikely(rzs_test_flag(rzs, index, RZS_UNCOMPRESSED)))
+ 		return handle_uncompressed_page(rzs, bio);
+ 
+@@ -753,7 +766,7 @@
+ 	if (unlikely(ret != LZO_E_OK)) {
+ 		pr_err("Decompression failed! err=%d, page=%u\n",
+ 			ret, index);
+-		stat_inc(rzs->stats.failed_reads);
++		stat64_inc(rzs, &rzs->stats.failed_reads);
+ 		goto out;
+ 	}
+ 
+@@ -777,38 +790,31 @@
+ 	struct page *page, *page_store;
+ 	unsigned char *user_mem, *cmem, *src;
+ 
+-	stat_inc(rzs->stats.num_writes);
++	stat64_inc(rzs, &rzs->stats.num_writes);
+ 
+ 	page = bio->bi_io_vec[0].bv_page;
+ 	index = bio->bi_sector >> SECTORS_PER_PAGE_SHIFT;
+ 
+ 	src = rzs->compress_buffer;
+ 
++#ifndef CONFIG_SWAP_FREE_NOTIFY
+ 	/*
+ 	 * System swaps to same sector again when the stored page
+ 	 * is no longer referenced by any process. So, its now safe
+ 	 * to free the memory that was allocated for this page.
+ 	 */
+-	if (rzs->table[index].page)
++	if (rzs->table[index].page || rzs_test_flag(rzs, index, RZS_ZERO))
+ 		ramzswap_free_page(rzs, index);
+-
+-	/*
+-	 * No memory ia allocated for zero filled pages.
+-	 * Simply clear zero page flag.
+-	 */
+-	if (rzs_test_flag(rzs, index, RZS_ZERO)) {
+-		stat_dec(rzs->stats.pages_zero);
+-		rzs_clear_flag(rzs, index, RZS_ZERO);
+-	}
++#endif
+ 
+ 	mutex_lock(&rzs->lock);
+ 
+ 	user_mem = kmap_atomic(page, KM_USER0);
+ 	if (page_zero_filled(user_mem)) {
+ 		kunmap_atomic(user_mem, KM_USER0);
+-		mutex_unlock(&rzs->lock);
+-		stat_inc(rzs->stats.pages_zero);
+ 		rzs_set_flag(rzs, index, RZS_ZERO);
++		mutex_unlock(&rzs->lock);
++		stat_inc(&rzs->stats.pages_zero);
+ 
+ 		set_bit(BIO_UPTODATE, &bio->bi_flags);
+ 		bio_endio(bio, 0);
+@@ -831,7 +837,7 @@
+ 	if (unlikely(ret != LZO_E_OK)) {
+ 		mutex_unlock(&rzs->lock);
+ 		pr_err("Compression failed! err=%d\n", ret);
+-		stat_inc(rzs->stats.failed_writes);
++		stat64_inc(rzs, &rzs->stats.failed_writes);
+ 		goto out;
+ 	}
+ 
+@@ -854,13 +860,13 @@
+ 			mutex_unlock(&rzs->lock);
+ 			pr_info("Error allocating memory for incompressible "
+ 				"page: %u\n", index);
+-			stat_inc(rzs->stats.failed_writes);
++			stat64_inc(rzs, &rzs->stats.failed_writes);
+ 			goto out;
+ 		}
+ 
+ 		offset = 0;
+ 		rzs_set_flag(rzs, index, RZS_UNCOMPRESSED);
+-		stat_inc(rzs->stats.pages_expand);
++		stat_inc(&rzs->stats.pages_expand);
+ 		rzs->table[index].page = page_store;
+ 		src = kmap_atomic(page, KM_USER0);
+ 		goto memstore;
+@@ -872,7 +878,7 @@
+ 		mutex_unlock(&rzs->lock);
+ 		pr_info("Error allocating memory for compressed "
+ 			"page: %u, size=%zu\n", index, clen);
+-		stat_inc(rzs->stats.failed_writes);
++		stat64_inc(rzs, &rzs->stats.failed_writes);
+ 		if (rzs->backing_swap)
+ 			fwd_write_request = 1;
+ 		goto out;
+@@ -901,9 +907,9 @@
+ 
+ 	/* Update stats */
+ 	rzs->stats.compr_size += clen;
+-	stat_inc(rzs->stats.pages_stored);
++	stat_inc(&rzs->stats.pages_stored);
+ 	if (clen <= PAGE_SIZE / 2)
+-		stat_inc(rzs->stats.good_compress);
++		stat_inc(&rzs->stats.good_compress);
+ 
+ 	mutex_unlock(&rzs->lock);
+ 
+@@ -913,7 +919,7 @@
+ 
+ out:
+ 	if (fwd_write_request) {
+-		stat_inc(rzs->stats.bdev_num_writes);
++		stat64_inc(rzs, &rzs->stats.bdev_num_writes);
+ 		bio->bi_bdev = rzs->backing_swap;
+ #if 0
+ 		/*
+@@ -975,7 +981,7 @@
+ 	}
+ 
+ 	if (!valid_swap_request(rzs, bio)) {
+-		stat_inc(rzs->stats.invalid_io);
++		stat64_inc(rzs, &rzs->stats.invalid_io);
+ 		bio_io_error(bio);
+ 		return 0;
+ 	}
+@@ -993,13 +999,18 @@
+ 	return ret;
+ }
+ 
+-static void reset_device(struct ramzswap *rzs)
++static void reset_device(struct ramzswap *rzs, struct block_device *bdev)
+ {
+ 	int is_backing_blkdev = 0;
+ 	size_t index, num_pages;
+ 	unsigned entries_per_page;
+ 	unsigned long num_table_pages, entry = 0;
+ 
++	if (bdev)
++		fsync_bdev(bdev);
++
++	rzs->init_done = 0;
++
+ 	if (rzs->backing_swap && !rzs->num_extents)
+ 		is_backing_blkdev = 1;
+ 
+@@ -1066,6 +1077,7 @@
+ 			bd_release(rzs->backing_swap);
+ 		filp_close(rzs->swap_file, NULL);
+ 		rzs->backing_swap = NULL;
++		memset(rzs->backing_swap_name, 0, MAX_SWAP_NAME_LEN);
+ 	}
+ 
+ 	/* Reset stats */
+@@ -1073,14 +1085,11 @@
+ 
+ 	rzs->disksize = 0;
+ 	rzs->memlimit = 0;
+-
+-	/* Back to uninitialized state */
+-	rzs->init_done = 0;
+ }
+ 
+ static int ramzswap_ioctl_init_device(struct ramzswap *rzs)
+ {
+-	int ret;
++	int ret, dev_id;
+ 	size_t num_pages;
+ 	struct page *page;
+ 	union swap_header *swap_header;
+@@ -1090,6 +1099,8 @@
+ 		return -EBUSY;
+ 	}
+ 
++	dev_id = rzs - devices;
++
+ 	ret = setup_backing_swap(rzs);
+ 	if (ret)
+ 		goto fail;
+@@ -1174,20 +1185,28 @@
+ 
+ 	rzs->init_done = 1;
+ 
+-	pr_debug("Initialization done!\n");
++	if (rzs->backing_swap) {
++		pr_info("/dev/ramzswap%d initialized: "
++			"backing_swap=%s, memlimit_kb=%zu\n",
++			dev_id, rzs->backing_swap_name, rzs->memlimit >> 10);
++	} else {
++		pr_info("/dev/ramzswap%d initialized: "
++			"disksize_kb=%zu", dev_id, rzs->disksize >> 10);
++	}
+ 	return 0;
+ 
+ fail:
+-	reset_device(rzs);
++	reset_device(rzs, NULL);
+ 
+ 	pr_err("Initialization failed: err=%d\n", ret);
+ 	return ret;
+ }
+ 
+-static int ramzswap_ioctl_reset_device(struct ramzswap *rzs)
++static int ramzswap_ioctl_reset_device(struct ramzswap *rzs,
++				struct block_device *bdev)
+ {
+ 	if (rzs->init_done)
+-		reset_device(rzs);
++		reset_device(rzs, bdev);
+ 
+ 	return 0;
+ }
+@@ -1212,7 +1231,7 @@
+ 			goto out;
+ 		}
+ 		rzs->disksize = disksize_kb << 10;
+-		pr_info("Disk size set to %zu kB\n", disksize_kb);
++		pr_debug("Disk size set to %zu kB\n", disksize_kb);
+ 		break;
+ 
+ 	case RZSIO_SET_MEMLIMIT_KB:
+@@ -1227,7 +1246,7 @@
+ 			goto out;
+ 		}
+ 		rzs->memlimit = memlimit_kb << 10;
+-		pr_info("Memory limit set to %zu kB\n", memlimit_kb);
++		pr_debug("Memory limit set to %zu kB\n", memlimit_kb);
+ 		break;
+ 
+ 	case RZSIO_SET_BACKING_SWAP:
+@@ -1242,7 +1261,7 @@
+ 			goto out;
+ 		}
+ 		rzs->backing_swap_name[MAX_SWAP_NAME_LEN - 1] = '\0';
+-		pr_info("Backing swap set to %s\n", rzs->backing_swap_name);
++		pr_debug("Backing swap set to %s\n", rzs->backing_swap_name);
+ 		break;
+ 
+ 	case RZSIO_GET_STATS:
+@@ -1276,7 +1295,7 @@
+ 			ret = -EBUSY;
+ 			goto out;
+ 		}
+-		ret = ramzswap_ioctl_reset_device(rzs);
++		ret = ramzswap_ioctl_reset_device(rzs, bdev);
+ 		break;
+ 
+ 	default:
+@@ -1288,21 +1307,41 @@
+ 	return ret;
+ }
+ 
++#if defined(CONFIG_SWAP_FREE_NOTIFY)
++void ramzswap_slot_free_notify(struct block_device *bdev, unsigned long index)
++{
++	struct ramzswap *rzs;
++
++	rzs = bdev->bd_disk->private_data;
++	ramzswap_free_page(rzs, index);
++	stat64_inc(rzs, &rzs->stats.notify_free);
++
++	return;
++}
++#endif
++
+ static struct block_device_operations ramzswap_devops = {
+ 	.ioctl = ramzswap_ioctl,
+-	.owner = THIS_MODULE,
++#if defined(CONFIG_SWAP_FREE_NOTIFY)
++	.swap_slot_free_notify = ramzswap_slot_free_notify,
++#endif
++	.owner = THIS_MODULE
+ };
+ 
+-static void create_device(struct ramzswap *rzs, int device_id)
++static int create_device(struct ramzswap *rzs, int device_id)
+ {
++	int ret = 0;
++
+ 	mutex_init(&rzs->lock);
++	spin_lock_init(&rzs->stat64_lock);
+ 	INIT_LIST_HEAD(&rzs->backing_swap_extent_list);
+ 
+ 	rzs->queue = blk_alloc_queue(GFP_KERNEL);
+ 	if (!rzs->queue) {
+ 		pr_err("Error allocating disk queue for device %d\n",
+ 			device_id);
+-		return;
++		ret = -ENOMEM;
++		goto out;
+ 	}
+ 
+ 	blk_queue_make_request(rzs->queue, ramzswap_make_request);
+@@ -1314,7 +1353,8 @@
+ 		blk_cleanup_queue(rzs->queue);
+ 		pr_warning("Error allocating disk structure for device %d\n",
+ 			device_id);
+-		return;
++		ret = -ENOMEM;
++		goto out;
+ 	}
+ 
+ 	rzs->disk->major = ramzswap_major;
+@@ -1329,9 +1368,16 @@
+ 	 * or set equal to backing swap device (if provided)
+ 	 */
+ 	set_capacity(rzs->disk, 0);
++
++	blk_queue_physical_block_size(rzs->disk->queue, PAGE_SIZE);
++	blk_queue_logical_block_size(rzs->disk->queue, PAGE_SIZE);
++
+ 	add_disk(rzs->disk);
+ 
+ 	rzs->init_done = 0;
++
++out:
++	return ret;
+ }
+ 
+ static void destroy_device(struct ramzswap *rzs)
+@@ -1347,18 +1393,21 @@
+ 
+ static int __init ramzswap_init(void)
+ {
+-	int i, ret;
++	int ret, dev_id;
++	struct ramzswap *rzs;
+ 
+ 	if (num_devices > max_num_devices) {
+ 		pr_warning("Invalid value for num_devices: %u\n",
+ 				num_devices);
+-		return -EINVAL;
++		ret = -EINVAL;
++		goto out;
+ 	}
+ 
+ 	ramzswap_major = register_blkdev(0, "ramzswap");
+ 	if (ramzswap_major <= 0) {
+ 		pr_warning("Unable to get major number\n");
+-		return -EBUSY;
++		ret = -EBUSY;
++		goto out;
+ 	}
+ 
+ 	if (!num_devices) {
+@@ -1367,19 +1416,64 @@
+ 	}
+ 
+ 	/* Allocate the device array and initialize each one */
+-	pr_info("Creating %u devices ...\n", num_devices);
++	pr_debug("Creating %u devices ...\n", num_devices);
+ 	devices = kzalloc(num_devices * sizeof(struct ramzswap), GFP_KERNEL);
+ 	if (!devices) {
+ 		ret = -ENOMEM;
++		goto unregister;
++	}
++
++	for (dev_id = 0; dev_id < num_devices; dev_id++) {
++		if (create_device(&devices[dev_id], dev_id)) {
++			ret = -ENOMEM;
++			goto free_devices;
++		}
++	}
++
++	/*
++	 * Initialize the first device (/dev/ramzswap0)
++	 * if parameters are provided
++	 */
++	rzs = &devices[0];
++
++	/*
++	 * User specifies either <disksize_kb> or <backing_swap, memlimit_kb>
++	 */
++	if (disksize_kb) {
++		rzs->disksize = disksize_kb << 10;
++		ret = ramzswap_ioctl_init_device(rzs);
++		if (ret)
++			goto free_devices;
+ 		goto out;
+ 	}
+ 
+-	for (i = 0; i < num_devices; i++)
+-		create_device(&devices[i], i);
++	if (backing_swap[0]) {
++		rzs->memlimit = memlimit_kb << 10;
++		strncpy(rzs->backing_swap_name, backing_swap,
++			MAX_SWAP_NAME_LEN);
++		rzs->backing_swap_name[MAX_SWAP_NAME_LEN - 1] = '\0';
++		ret = ramzswap_ioctl_init_device(rzs);
++		if (ret)
++			goto free_devices;
++		goto out;
++	}
++
++	/* User specified memlimit_kb but not backing_swap */
++	if (memlimit_kb) {
++		pr_info("memlimit_kb parameter is valid only when "
++			"backing_swap is also specified. Aborting.\n");
++		ret = -EINVAL;
++		goto free_devices;
++	}
+ 
+ 	return 0;
+-out:
++
++free_devices:
++	while(dev_id)
++		destroy_device(&devices[--dev_id]);
++unregister:
+ 	unregister_blkdev(ramzswap_major, "ramzswap");
++out:
+ 	return ret;
+ }
+ 
+@@ -1393,7 +1487,7 @@
+ 
+ 		destroy_device(rzs);
+ 		if (rzs->init_done)
+-			reset_device(rzs);
++			reset_device(rzs, NULL);
+ 	}
+ 
+ 	unregister_blkdev(ramzswap_major, "ramzswap");
+@@ -1402,9 +1496,39 @@
+ 	pr_debug("Cleanup done!\n");
+ }
+ 
++/*
++ * Module parameters
++ */
++
++/* Optional: default = 1 */
+ module_param(num_devices, uint, 0);
+ MODULE_PARM_DESC(num_devices, "Number of ramzswap devices");
+ 
++/*
++ * User specifies either <disksize_kb> or <backing_swap, memlimit_kb>
++ * parameters. You must specify these parameters if the first device
++ * has to be initialized on module load without using rzscontrol utility.
++ * This is useful for embedded system, where shipping an additional binary
++ * (rzscontrol) might not be desirable.
++ *
++ * These parameters are used to initialize just the first (/dev/ramzswap0)
++ * device. To initialize additional devices, use rzscontrol utility. If
++ * these parameters are not provided, then the first device is also
++ * left in unitialized state.
++ */
++
++/* Optional: default = 25% of RAM */
++module_param(disksize_kb, ulong, 0);
++MODULE_PARM_DESC(disksize_kb, "Disksize in KB");
++
++/* Optional: default = 15% of RAM */
++module_param(memlimit_kb, ulong, 0);
++MODULE_PARM_DESC(memlimit_kb, "Memlimit in KB");
++
++/* Optional: default = <NULL> */
++module_param_string(backing_swap, backing_swap, sizeof(backing_swap), 0);
++MODULE_PARM_DESC(backing_swap, "Backing swap name");
++
+ module_init(ramzswap_init);
+ module_exit(ramzswap_exit);
+ 
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_drv.h linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_drv.h
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_drv.h	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_drv.h	2010-01-24 12:04:14.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * Compressed RAM based swap device
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+@@ -15,8 +15,11 @@
+ #ifndef _RAMZSWAP_DRV_H_
+ #define _RAMZSWAP_DRV_H_
+ 
++#include <linux/spinlock.h>
++#include <linux/mutex.h>
++
+ #include "ramzswap_ioctl.h"
+-#include "xvmalloc.h"
++#include "sub-projects/allocators/xvmalloc-kmod/xvmalloc.h"
+ 
+ /*
+  * Some arbitrary value. This is just to catch
+@@ -71,15 +74,6 @@
+ #define SECTORS_PER_PAGE_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
+ #define SECTORS_PER_PAGE	(1 << SECTORS_PER_PAGE_SHIFT)
+ 
+-/* Debugging and Stats */
+-#if defined(CONFIG_RAMZSWAP_STATS)
+-#define stat_inc(stat)	((stat)++)
+-#define stat_dec(stat)	((stat)--)
+-#else
+-#define stat_inc(x)
+-#define stat_dec(x)
+-#endif
+-
+ /* Flags for ramzswap pages (table[page_no].flags) */
+ enum rzs_pageflags {
+ 	/* Page is stored uncompressed */
+@@ -102,7 +96,7 @@
+ 	u16 offset;
+ 	u8 count;	/* object ref count (not yet used) */
+ 	u8 flags;
+-} __attribute__((aligned(4)));;
++} __attribute__((aligned(4)));
+ 
+ /*
+  * Swap extent information in case backing swap is a regular
+@@ -121,9 +115,10 @@
+ #if defined(CONFIG_RAMZSWAP_STATS)
+ 	u64 num_reads;		/* failed + successful */
+ 	u64 num_writes;		/* --do-- */
+-	u64 failed_reads;	/* can happen when memory is too low */
+-	u64 failed_writes;	/* should NEVER! happen */
++	u64 failed_reads;	/* should NEVER! happen */
++	u64 failed_writes;	/* can happen when memory is too low */
+ 	u64 invalid_io;		/* non-swap I/O requests */
++	u64 notify_free;	/* no. of swap slot free notifications */
+ 	u32 pages_zero;		/* no. of zero filled pages */
+ 	u32 pages_stored;	/* no. of pages currently stored */
+ 	u32 good_compress;	/* % of pages with compression ratio<=50% */
+@@ -138,6 +133,7 @@
+ 	void *compress_workmem;
+ 	void *compress_buffer;
+ 	struct table *table;
++	spinlock_t stat64_lock;	/* protect 64-bit stats */
+ 	struct mutex lock;
+ 	struct request_queue *queue;
+ 	struct gendisk *disk;
+@@ -167,5 +163,48 @@
+ 
+ /*-- */
+ 
+-#endif
++/* Debugging and Stats */
++#if defined(CONFIG_RAMZSWAP_STATS)
++static void stat_inc(u32 *v)
++{
++	*v = *v + 1;
++}
++
++static void stat_dec(u32 *v)
++{
++	*v = *v - 1;
++}
++
++static void stat64_inc(struct ramzswap *rzs, u64 *v)
++{
++	spin_lock(&rzs->stat64_lock);
++	*v = *v + 1;
++	spin_unlock(&rzs->stat64_lock);
++}
++
++static void stat64_dec(struct ramzswap *rzs, u64 *v)
++{
++	spin_lock(&rzs->stat64_lock);
++	*v = *v - 1;
++	spin_unlock(&rzs->stat64_lock);
++}
++
++static u64 stat64_read(struct ramzswap *rzs, u64 *v)
++{
++	u64 val;
++
++	spin_lock(&rzs->stat64_lock);
++	val = *v;
++	spin_unlock(&rzs->stat64_lock);
+ 
++	return val;
++}
++#else
++#define stat_inc(v)
++#define stat_dec(v)
++#define stat64_inc(r, v)
++#define stat64_dec(r, v)
++#define stat64_read(r, v)
++#endif /* CONFIG_RAMZSWAP_STATS */
++
++#endif
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_ioctl.h linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_ioctl.h
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap_ioctl.h	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap_ioctl.h	2010-01-23 06:09:27.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * Compressed RAM based swap device
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+@@ -24,9 +24,10 @@
+ 				 * size (if present) */
+ 	u64 num_reads;		/* failed + successful */
+ 	u64 num_writes;		/* --do-- */
+-	u64 failed_reads;	/* can happen when memory is too low */
+-	u64 failed_writes;	/* should NEVER! happen */
++	u64 failed_reads;	/* should NEVER! happen */
++	u64 failed_writes;	/* can happen when memory is too low */
+ 	u64 invalid_io;		/* non-swap I/O requests */
++	u64 notify_free;	/* no. of swap slot free notifications */
+ 	u32 pages_zero;		/* no. of zero filled pages */
+ 	u32 good_compress_pct;	/* no. of pages with compression ratio<=50% */
+ 	u32 pages_expand_pct;	/* no. of incompressible pages */
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap.txt linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap.txt
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/ramzswap.txt	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/ramzswap.txt	2010-01-24 01:24:07.000000000 -0600
+@@ -4,48 +4,86 @@
+ Project home: http://compcache.googlecode.com/
+ 
+ * Introduction
++The ramzswap module creates RAM based block devices which can (only) be used as
++swap disks. Pages swapped to these devices are compressed and stored in memory
++itself. See project home for use cases, performance numbers and a lot more.
++
++Help page:
++  http://compcache.googlecode.com/CompilingAndUsingNew
++
++* Compiling
++  - 'make':	This will compile all modules against your kernel
++  - 'make doc':	This will compile rzscontrol manual page:
++		sub-projects/rzscontrol/man/rzscontrol.1
++  - Optional (HIGHLY RECOMMENDED):
++	- Apply the patch found in compcache/patches/ directory and just
++	  compile the kernel as usual. Currently, the patch is against 2.6.33
++	  but it should apply to slightly older kernels too. This will enable
++	  'swap free notify' feature which allows kernel to send callback to
++	  ramzswap as soon as a swap slot becomes free. So, we can immediately
++	  free memory allocated for this page, eliminating any stale data in
++	  (compressed) memory.
++	- Uncomment '#define CONFIG_SWAP_FREE_NOTIFY' in compcache/compat.h
++	  before compiling compcache against this patched kernel. Otherwise,
++          this swap notify callback will not be used.
++
++Following binaries are created:
++  - ramzswap.ko (kernel driver)
++  - sub-projects/rzscontrol/rzscontrol (userspace tool)
+ 
+-It creates RAM based block devices which can be used (only) as swap disks.
+-Pages swapped to these devices are compressed and stored in memory itself.
+-See project home for use cases, performance numbers and a lot more.
+-
+-Individual ramzswap devices are configured and initialized using rzscontrol
+-userspace utility as shown in examples below. See rzscontrol man page for more
+-details.
++* Using
++Following shows a typical sequence of steps for using ramzswap.
+ 
+-* Usage
++  1) Load Modules:
++     # load dependency modules
++     modprobe lzo_compress
++     modprobe lzo_decompress
+ 
+-Following shows a typical sequence of steps for using ramzswap.
++     # example1: load ramzswap module
++     insmod ramzswap.ko num_devices=4
++
++     This creates 4 devices (/dev/ramzswap{0,1,2,3}) which are left
++     uninitialized.
++
++     # example2: load ramzswap module and initialize the first device
++     insmod ramzswap.ko num_devices=4 disksize_kb=20480
+ 
+-1) Load Modules:
+-	modprobe ramzswap num_devices=4
+-	This creates 4 (uninitialized) devices: /dev/ramzswap{0,1,2,3}
+-	(num_devices parameter is optional. Default: 1)
++     This initializes first device (/dev/ramzswap0) with disksize of 20MB.
++     Other 3 devices (/dev/ramzswap{1,2,3}) are left uninitialized.
+ 
+-2) Initialize:
++  2) Initialize:
+ 	Use rzscontrol utility to configure and initialize individual
+ 	ramzswap devices. Example:
+-	rzscontrol /dev/ramzswap2 --init # uses default value of disksize_kb
++        rzscontrol /dev/ramzswap0 --init # uses default value of disksize_kb
+ 
+-	*See rzscontrol man page for more details and examples*
++     *See rzscontrol manpage for more details and examples*
+ 
+-3) Activate:
++  3) Activate:
+ 	swapon /dev/ramzswap2 # or any other initialized ramzswap device
+ 
+-4) Stats:
++  4) Stats:
+ 	rzscontrol /dev/ramzswap2 --stats
+ 
+-5) Deactivate:
++  5) Deactivate:
+ 	swapoff /dev/ramzswap2
+ 
+-6) Reset:
++  6) Reset:
+ 	rzscontrol /dev/ramzswap2 --reset
+-	(This frees all the memory allocated for this device).
+ 
++  7) Unload Modules:
++     rmmod ramzswap
++     rmmod lzo_compress
++     rmmod lzo_decompress
++
++* Common Problems
++  - If you get lots of compiler errors, make sure you have the package for
++    kernel source installed. For e.g., on Fedora its 'kernel-devel' package.
++
++
++Please consider using Issue Tracker:
++http://code.google.com/p/compcache/issues/list
++for reporting any bugs/feature requests.
+ 
+-Please report any problems at:
+- - Mailing list: linux-mm-cc at laptop dot org
+- - Issue tracker: http://code.google.com/p/compcache/issues/list
+ 
+-Nitin Gupta
+-ngupta@vflare.org
++Author: Nitin Gupta (ngupta at vflare dot org)
++Last Updated: 24/1/2010
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc.c linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc.c
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc.c	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc.c	2010-01-23 06:10:06.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * xvmalloc memory allocator
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+@@ -273,7 +273,7 @@
+ }
+ 
+ /*
+- * Allocate a page and add it freelist of given pool.
++ * Allocate a page and add it to freelist of given pool.
+  */
+ static int grow_pool(struct xv_pool *pool, gfp_t flags)
+ {
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc.h linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc.h
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc.h	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc.h	2010-01-23 06:09:59.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * xvmalloc memory allocator
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc_int.h linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc_int.h
+--- linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap.old/xvmalloc_int.h	2010-01-24 15:52:28.405222070 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/staging/ramzswap/xvmalloc_int.h	2010-01-23 06:09:50.000000000 -0600
+@@ -1,7 +1,7 @@
+ /*
+  * xvmalloc memory allocator
+  *
+- * Copyright (C) 2008, 2009  Nitin Gupta
++ * Copyright (C) 2008, 2009, 2010  Nitin Gupta
+  *
+  * This code is released using a dual license strategy: BSD/GPL
+  * You can choose the licence that better fits your requirements.
+@@ -62,7 +62,7 @@
+ 
+ struct block_header {
+ 	union {
+-		/* This common header must be ALIGN bytes */
++		/* This common header must be XV_ALIGN bytes */
+ 		u8 common[XV_ALIGN];
+ 		struct {
+ 			u16 size;

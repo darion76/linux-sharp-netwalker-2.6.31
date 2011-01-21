@@ -1,0 +1,55 @@
+diff -BburN -x linux-2.6.31-ER1-efikamx/Documentation/dontdiff linux-2.6.31-ER1-efikamx.orig/arch/arm/mach-mx51/mx51_efikamx.c linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c
+--- linux-2.6.31-ER1-efikamx.orig/arch/arm/mach-mx51/mx51_efikamx.c	2010-01-26 00:38:06.528433769 -0600
++++ linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c	2010-01-26 00:12:15.000000000 -0600
+@@ -77,7 +77,7 @@
+ int __initdata sink_dvi = { 0 };
+ int __initdata sink_monitor = { 0 };
+ int __initdata pixclk_limit = { KHZ2PICOS(133200) };
+-int __initdata video_max_res = { 0 };
++int __initdata video_max_res = { 1 };
+ u8 edid[256];
+ 
+ struct fb_videomode __initdata mxcfb_preferred;
+diff -BburN -x linux-2.6.31-ER1-efikamx/Documentation/dontdiff linux-2.6.31-ER1-efikamx.orig/drivers/mxc/pmic/core/mc13892.c linux-2.6.31-ER1-efikamx/drivers/mxc/pmic/core/mc13892.c
+--- linux-2.6.31-ER1-efikamx.orig/drivers/mxc/pmic/core/mc13892.c	2009-12-12 13:16:52.000000000 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/mxc/pmic/core/mc13892.c	2010-01-26 00:29:42.000000000 -0600
+@@ -192,7 +192,10 @@
+ 	if (machine_is_mx51_3ds())
+ 		CHECK_ERROR(pmic_write(REG_CHARGE, 0xB40003));
+ 
++#if !defined(CONFIG_MACH_MX51_EFIKAMX)
++	/* for some reason pmic power off breaks on Efika MX */
+ 	pm_power_off = mc13892_power_off;
++#endif
+ 
+ 	return PMIC_SUCCESS;
+ }
+diff -BburN -x linux-2.6.31-ER1-efikamx/Documentation/dontdiff linux-2.6.31-ER1-efikamx.orig/drivers/video/mxc/mxcfb_sii9022.c linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c
+--- linux-2.6.31-ER1-efikamx.orig/drivers/video/mxc/mxcfb_sii9022.c	2010-01-26 00:38:06.584454393 -0600
++++ linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c	2010-01-26 00:11:13.000000000 -0600
+@@ -228,8 +228,6 @@
+ };
+ #endif 
+ 
+-static struct fb_var_screeninfo var;
+-
+ int edid_parse(u8 *edid, int *sink_monitor, int *sink_dvi)
+ {
+ 	if (edid[126] > 0) {
+@@ -730,6 +728,8 @@
+ {
+ 	int err = 0;
+ 	
++	static struct fb_var_screeninfo var;
++	
+ 	printk("*** sii9022 %s\n", __func__);
+ 
+ 	memset(&var, 0, sizeof(var));
+@@ -737,6 +737,7 @@
+ 	err = sii9022_handle_edid( sii9022_client, edid, sizeof(edid));
+ 
+ 	if ( err == 0 ) {
++		edid_parse(edid, &sink_monitor, &sink_dvi);
+ 		fb_edid_to_monspecs(edid, &info->monspecs);
+ 
+ 		if ( info->monspecs.modedb_len ) {

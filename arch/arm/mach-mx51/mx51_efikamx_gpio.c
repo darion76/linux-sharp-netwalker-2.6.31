@@ -1,0 +1,837 @@
+/*
+ * Copyright 2009 Pegatron Corporation. All Rights Reserved.
+ */
+
+/*
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
+ *
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
+ */
+
+#include <linux/errno.h>
+#include <linux/module.h>
+#include <linux/platform_device.h>
+#include <linux/delay.h>
+#include <linux/leds.h>
+#include <mach/hardware.h>
+#include <mach/gpio.h>
+#include "board-mx51_efikamx.h"
+#include "iomux.h"
+
+int board_id[2] = { 0, 0 };
+
+/*!
+ * @file mach-mx51/mx51_efikamx_gpio.c
+ *
+ * @brief This file contains all the GPIO setup functions for the board.
+ *
+ * @ingroup GPIO
+ */
+
+#define ATA_PAD_CONFIG (PAD_CTL_DRV_HIGH | PAD_CTL_DRV_VOT_HIGH)
+
+static struct mxc_iomux_pin_cfg __initdata mxc_iomux_pins[] = {
+	/* USBH2_DATA0 */
+	{
+	 MX51_PIN_EIM_D16, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_100K_PU | PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE |
+	  PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA1 */
+	{
+	 MX51_PIN_EIM_D17, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA2 */
+	{
+	 MX51_PIN_EIM_D18, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA3 */
+	{
+	 MX51_PIN_EIM_D19, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA4 */
+	{
+	 MX51_PIN_EIM_D20, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA5 */
+	{
+	 MX51_PIN_EIM_D21, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA6 */
+	{
+	 MX51_PIN_EIM_D22, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DATA7 */
+	{
+	 MX51_PIN_EIM_D23, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{
+	 MX51_PIN_EIM_A16, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A17, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A18, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A19, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A20, IOMUX_CONFIG_GPIO,
+	 (PAD_CTL_PKE_ENABLE),
+	 },
+	{
+	 MX51_PIN_EIM_A21, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A22, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_A23, IOMUX_CONFIG_GPIO,
+	 },
+	/* USBH2_CLK */
+	{
+	 MX51_PIN_EIM_A24, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_DIR */
+	{
+	 MX51_PIN_EIM_A25, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_STP */
+	{
+	 MX51_PIN_EIM_A26, IOMUX_CONFIG_ALT2,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	/* USBH2_NXT */          //ron: test, from ER8
+	{
+	  MX51_PIN_EIM_A27, IOMUX_CONFIG_ALT2,
+	  (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	   PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	},
+	{			/*MDIO */
+	 MX51_PIN_EIM_EB2, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_ENABLE |
+	  PAD_CTL_22K_PU | PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE |
+	  PAD_CTL_PUE_PULL),
+	 },
+	{			/*RDATA[1] */
+
+	 MX51_PIN_EIM_EB3, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE),
+	 },
+	{			/*RDATA[2] */
+	 MX51_PIN_EIM_CS2, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE),
+	 },
+	{			/*RDATA[3] */
+	 MX51_PIN_EIM_CS3, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE),
+	 },
+	{			/*RX_ER */
+	 MX51_PIN_EIM_CS4, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE),
+	 },
+	{			/*CRS */
+	 MX51_PIN_EIM_CS5, IOMUX_CONFIG_ALT3,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE),
+	 },
+	{			/*power key*/
+	 MX51_PIN_EIM_DTACK, IOMUX_CONFIG_GPIO,
+	 (PAD_CTL_PKE_ENABLE | PAD_CTL_100K_PU),
+	 },
+	{
+	 MX51_PIN_EIM_LBA, IOMUX_CONFIG_GPIO,
+	 },
+	{
+	 MX51_PIN_EIM_CRE, IOMUX_CONFIG_GPIO,
+	 },
+	{//board detect needs 100k pu
+	 MX51_PIN_NANDF_CS0, IOMUX_CONFIG_GPIO,
+	 PAD_CTL_100K_PU,
+	 },
+	{// board detect needs 100k pu
+	 MX51_PIN_NANDF_CS1, IOMUX_CONFIG_GPIO,
+	 PAD_CTL_100K_PU,
+	 },
+	{			/* SDHC2 CD */
+	 MX51_PIN_GPIO1_8, IOMUX_CONFIG_ALT6 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_HIGH | PAD_CTL_HYS_ENABLE | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST),
+	 //MX51_PIN_GPIO1_8, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	 //(PAD_CTL_SRE_SLOW | PAD_CTL_DRV_MEDIUM | PAD_CTL_100K_PU |
+	 // PAD_CTL_HYS_ENABLE | PAD_CTL_DRV_VOT_HIGH),
+	 },
+	{
+	 MX51_PIN_DI_GP4, IOMUX_CONFIG_ALT4,
+	 },
+	{
+	 MX51_PIN_DISPB2_SER_DIN, IOMUX_CONFIG_GPIO,
+	 0,
+	 MUX_IN_GPIO3_IPP_IND_G_IN_5_SELECT_INPUT,
+	 INPUT_CTL_PATH1,
+	 },
+	/*
+	{
+	 MX51_PIN_NANDF_D12, IOMUX_CONFIG_GPIO,
+	 0,
+	 },
+	*/
+	{
+	 MX51_PIN_GPIO1_2, IOMUX_CONFIG_ALT2 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_ODE_OPENDRAIN_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_ENABLE),
+	 MUX_IN_I2C2_IPP_SCL_IN_SELECT_INPUT, INPUT_CTL_PATH3,
+	 },
+	{
+	 MX51_PIN_GPIO1_3, IOMUX_CONFIG_ALT2 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_ODE_OPENDRAIN_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_ENABLE),
+	 MUX_IN_I2C2_IPP_SDA_IN_SELECT_INPUT, INPUT_CTL_PATH3,
+	 },
+	{
+	 MX51_PIN_USBH1_STP, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_CLK */
+	 MX51_PIN_USBH1_CLK, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE | PAD_CTL_DDR_INPUT_CMOS),
+	 },
+	{			/* USBH1_DIR */
+	 MX51_PIN_USBH1_DIR, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE | PAD_CTL_DDR_INPUT_CMOS),
+	 },
+	{			/* USBH1_NXT */
+	 MX51_PIN_USBH1_NXT, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE | PAD_CTL_DDR_INPUT_CMOS),
+	 },
+	{			/* USBH1_DATA0 */
+	 MX51_PIN_USBH1_DATA0, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA1 */
+	 MX51_PIN_USBH1_DATA1, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA2 */
+	 MX51_PIN_USBH1_DATA2, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA3 */
+	 MX51_PIN_USBH1_DATA3, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA4 */
+	 MX51_PIN_USBH1_DATA4, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA5 */
+	 MX51_PIN_USBH1_DATA5, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA6 */
+	 MX51_PIN_USBH1_DATA6, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{			/* USBH1_DATA7 */
+	 MX51_PIN_USBH1_DATA7, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+	  PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_HYS_ENABLE),
+	 },
+	{
+	 MX51_PIN_SD1_CMD, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD1_CLK, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD1_DATA0, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD1_DATA1, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD1_DATA2, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD1_DATA3, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_PUE_KEEPER | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+	  PAD_CTL_47K_PU | PAD_CTL_SRE_FAST),
+	 },
+	/*
+	{
+	 MX51_PIN_GPIO1_0, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+	 },
+	*/
+	{		/*SDHC1 CD*/
+	 MX51_PIN_GPIO1_0, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_HIGH | PAD_CTL_HYS_ENABLE | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE | PAD_CTL_PKE_ENABLE |
+	  PAD_CTL_SRE_FAST),
+	 },
+	/*
+	{
+	 MX51_PIN_GPIO1_1, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+	 },
+	*/
+	{		//SDHC1 WP
+	 MX51_PIN_GPIO1_1, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_HIGH | PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU |
+	  PAD_CTL_ODE_OPENDRAIN_NONE | PAD_CTL_SRE_FAST),
+	 },
+	{		//SDHC2 WP
+	 MX51_PIN_GPIO1_7, IOMUX_CONFIG_ALT6 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_HIGH | PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU |
+	  PAD_CTL_ODE_OPENDRAIN_NONE | PAD_CTL_SRE_FAST),
+	 },
+	{		/*ron: SDHC2 CD*/
+	 MX51_PIN_GPIO1_8, IOMUX_CONFIG_ALT6 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_HIGH | PAD_CTL_HYS_ENABLE | PAD_CTL_PUE_KEEPER |
+	  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE | PAD_CTL_PKE_ENABLE |
+	  PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_CMD, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_CLK, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_DATA0, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_DATA1, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_DATA2, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_SD2_DATA3, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_DRV_MAX | PAD_CTL_22K_PU | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_GPIO1_4, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+	 },
+	/*
+	{
+	 MX51_PIN_GPIO1_6, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+	 },
+	*/
+	{
+	 MX51_PIN_GPIO1_6, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+	  (PAD_CTL_SRE_SLOW | PAD_CTL_DRV_MEDIUM | PAD_CTL_100K_PU |
+	  PAD_CTL_HYS_ENABLE | PAD_CTL_DRV_VOT_HIGH),
+	 },
+	{
+	 MX51_PIN_UART1_RXD, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_PULL |
+	  PAD_CTL_DRV_HIGH | PAD_CTL_SRE_FAST),
+	 MUX_IN_UART1_IPP_UART_RXD_MUX_SELECT_INPUT,
+	 INPUT_CTL_PATH0,
+	 },
+	{
+	 MX51_PIN_UART1_TXD, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_PULL |
+	  PAD_CTL_DRV_HIGH | PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_UART1_RTS, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_PULL |
+	  PAD_CTL_DRV_HIGH),
+	 MUX_IN_UART1_IPP_UART_RTS_B_SELECT_INPUT,
+	 INPUT_CTL_PATH0,
+	 },
+	{
+	 MX51_PIN_UART1_CTS, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_PUE_PULL |
+	  PAD_CTL_DRV_HIGH),
+	 },
+	{
+	 MX51_PIN_AUD3_BB_TXD, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_NONE | PAD_CTL_DDR_INPUT_CMOS |
+	  PAD_CTL_DRV_VOT_LOW),
+	 },
+	{
+	 MX51_PIN_AUD3_BB_RXD, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_NONE | PAD_CTL_DDR_INPUT_CMOS |
+	  PAD_CTL_DRV_VOT_LOW),
+	 },
+	{
+	 MX51_PIN_AUD3_BB_CK, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_NONE | PAD_CTL_DDR_INPUT_CMOS |
+	  PAD_CTL_DRV_VOT_LOW),
+	 },
+	{
+	 MX51_PIN_AUD3_BB_FS, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_SRE_FAST | PAD_CTL_DRV_HIGH | PAD_CTL_ODE_OPENDRAIN_NONE |
+	  PAD_CTL_100K_PU | PAD_CTL_HYS_NONE | PAD_CTL_DDR_INPUT_CMOS |
+	  PAD_CTL_DRV_VOT_LOW),
+	 },
+	{			/* ron: eCSPI1 */
+	 MX51_PIN_CSPI1_MISO, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+				  PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_CSPI1_MOSI, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+				  PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_CSPI1_RDY, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+				  PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_CSPI1_SCLK, IOMUX_CONFIG_ALT0,
+	 (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH |
+				  PAD_CTL_SRE_FAST),
+	 },
+	{
+	 MX51_PIN_CSPI1_SS0, IOMUX_CONFIG_ALT0,
+         (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH | 
+          PAD_CTL_SRE_FAST ),
+	 },
+	{
+	 MX51_PIN_CSPI1_SS1, IOMUX_CONFIG_ALT0,
+         (PAD_CTL_HYS_ENABLE | PAD_CTL_PKE_ENABLE | PAD_CTL_DRV_HIGH | 
+          PAD_CTL_SRE_FAST ),
+	 },
+        
+	{                       /* ron: WLAN LED */
+	 MX51_PIN_CSI1_D9, IOMUX_CONFIG_ALT3,
+	},
+	{                       /* ron: Power On LED */
+	 MX51_PIN_CSI1_VSYNC, IOMUX_CONFIG_ALT3,
+	},
+	{                       /* ron: Sleep LED */
+	 MX51_PIN_CSI1_HSYNC, IOMUX_CONFIG_ALT3,
+	},
+        
+};
+
+static struct mxc_iomux_pin_cfg __initdata ata_iomux_pins[] = {
+	{
+	 MX51_PIN_NANDF_ALE, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CS2, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CS3, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CS4, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CS5, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CS6, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_RE_B, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_WE_B, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_CLE, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_RB0, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_WP_B, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	/* TO 2.0 */
+	{
+	 MX51_PIN_GPIO_NAND, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_RB1, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D0, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D1, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D2, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D3, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D4, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D5, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D6, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D7, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D8, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D9, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D10, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D11, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D12, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D13, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D14, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+	{
+	 MX51_PIN_NANDF_D15, IOMUX_CONFIG_ALT1,
+	 ATA_PAD_CONFIG,
+	 },
+};
+
+
+
+static struct gpio_led mx51_efikamx_leds[] = {
+	{
+		.name = "efikamx:green:power",
+		.default_trigger = "default-on",
+		.gpio = IOMUX_TO_GPIO(POWER_LED_PIN),
+	},
+	{
+		.name = "efikamx:red:ide",
+		.default_trigger = "ide-disk",
+		.gpio = IOMUX_TO_GPIO(SLEEP_LED_PIN),
+	},
+	{
+		.name = "efikamx:blue:sdhc",
+		.default_trigger = "mmc1",
+		.gpio = IOMUX_TO_GPIO(WLAN_LED_PIN),
+	},
+};
+
+static struct gpio_led_platform_data mx51_efikamx_leds_info = {
+	.leds = mx51_efikamx_leds,
+	.num_leds = ARRAY_SIZE(mx51_efikamx_leds),
+};
+
+struct platform_device mx51_efikamx_leds_device = {
+	.name = "leds-gpio",
+	.id = -1,
+	.dev = {
+		.platform_data = &mx51_efikamx_leds_info,
+	},
+};
+EXPORT_SYMBOL(mx51_efikamx_leds_device);
+
+
+
+void __init mx51_efikamx_io_init(void)
+{
+	int i, num;
+	struct mxc_iomux_pin_cfg *pin_ptr;
+
+	for (i = 0; i < ARRAY_SIZE(mxc_iomux_pins); i++) {
+		mxc_request_iomux(mxc_iomux_pins[i].pin,
+				  mxc_iomux_pins[i].mux_mode);
+		if (mxc_iomux_pins[i].pad_cfg)
+			mxc_iomux_set_pad(mxc_iomux_pins[i].pin,
+					  mxc_iomux_pins[i].pad_cfg);
+		if (mxc_iomux_pins[i].in_select)
+			mxc_iomux_set_input(mxc_iomux_pins[i].in_select,
+					    mxc_iomux_pins[i].in_mode);
+	}
+
+	// enable PATA
+	pin_ptr = ata_iomux_pins;
+	num = ARRAY_SIZE(ata_iomux_pins);
+
+	for (i = 0; i < num; i++) {
+		mxc_request_iomux(pin_ptr[i].pin,
+				  pin_ptr[i].mux_mode);
+		if (pin_ptr[i].pad_cfg)
+			mxc_iomux_set_pad(pin_ptr[i].pin,
+					  pin_ptr[i].pad_cfg);
+		if (pin_ptr[i].in_select)
+			mxc_iomux_set_input(pin_ptr[i].in_select,
+					    pin_ptr[i].in_mode);
+	}
+
+	// WiFi LED
+	/* mxc_request_iomux(MX51_PIN_CSI1_D9, IOMUX_CONFIG_ALT3); */
+	gpio_request(IOMUX_TO_GPIO(WLAN_LED_PIN), "wlan_led");
+	gpio_direction_output(IOMUX_TO_GPIO(WLAN_LED_PIN)/* MX51_PIN_CSI1_D9 */, 0);
+	gpio_free(IOMUX_TO_GPIO(WLAN_LED_PIN));
+
+	// Power On LED
+	/* mxc_request_iomux(MX51_PIN_CSI1_VSYNC, IOMUX_CONFIG_ALT3); */
+	gpio_request(IOMUX_TO_GPIO(POWER_LED_PIN), "power_led");
+	gpio_direction_output(IOMUX_TO_GPIO(POWER_LED_PIN)/* MX51_PIN_CSI1_VSYNC */, 1);
+	gpio_free(IOMUX_TO_GPIO(POWER_LED_PIN));
+
+	// Sleep LED
+	/* mxc_request_iomux(MX51_PIN_CSI1_HSYNC, IOMUX_CONFIG_ALT3); */
+	gpio_request(IOMUX_TO_GPIO(SLEEP_LED_PIN), "sleep_led");	
+	gpio_direction_output(IOMUX_TO_GPIO(SLEEP_LED_PIN)/* MX51_PIN_CSI1_HSYNC */, 0);
+	gpio_free(IOMUX_TO_GPIO(SLEEP_LED_PIN));
+
+	// register platform device for LEDs now we fiddled them
+	(void)platform_device_register(&mx51_efikamx_leds_device);
+
+	//ron: USB Hub Reset
+	mxc_request_iomux(MX51_PIN_GPIO1_5, IOMUX_CONFIG_ALT0);
+	mxc_iomux_set_pad(MX51_PIN_GPIO1_5, PAD_CTL_DRV_HIGH |
+			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), "usb_hub_reset");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 1);
+	msleep(1);
+	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 0);
+	msleep(1);
+	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_GPIO1_5), 1);
+
+	//ron: change PMIC interrupt from GPIO1_8 to GPIO1_6
+	
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_6), "pmic_intr");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_GPIO1_6));
+	
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_0), "sdhc1_cd");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_GPIO1_0));		/* SD1 CD */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_8), "sdhc2_cd");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_GPIO1_8));		/*ron: SDHC2 CD*/
+	
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_1), "sdhc1_wp");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_GPIO1_1));		/* SD1 WP */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_GPIO1_7), "sdhc2_wp");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_GPIO1_7));		/*ron: SDHC2 WP*/
+
+	/* enable BlueTooth */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), "bluetooth_enable");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), 0);
+	msleep(10);
+	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A17), 1);
+
+	/* pull low wlan_on# */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A22), "wlan_on");
+    gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A22), 0);
+	msleep(10);
+
+	/* pull low-high pulse wlan_rst# */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), "wlan_rst");
+    gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 0);
+	msleep(10);
+	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 1);
+
+	mxc_free_iomux(MX51_PIN_EIM_A24, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_A25, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D18, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D20, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D21, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D23, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D16, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D17, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_D19, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_GPIO1_2, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_GPIO1_3, IOMUX_CONFIG_ALT2);
+	mxc_free_iomux(MX51_PIN_EIM_LBA, IOMUX_CONFIG_GPIO);
+
+	/* i2c2 SDA */
+	mxc_request_iomux(MX51_PIN_KEY_COL5,
+			  IOMUX_CONFIG_ALT3 | IOMUX_CONFIG_SION);
+	mxc_iomux_set_input(MUX_IN_I2C2_IPP_SDA_IN_SELECT_INPUT,
+			    INPUT_CTL_PATH1);
+	mxc_iomux_set_pad(MX51_PIN_KEY_COL5,
+			  PAD_CTL_SRE_FAST |
+			  PAD_CTL_ODE_OPENDRAIN_ENABLE |
+			  PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+			  PAD_CTL_HYS_ENABLE);
+
+	/* i2c2 SCL */
+	mxc_request_iomux(MX51_PIN_KEY_COL4,
+			  IOMUX_CONFIG_ALT3 | IOMUX_CONFIG_SION);
+	mxc_iomux_set_input(MUX_IN_I2C2_IPP_SCL_IN_SELECT_INPUT,
+			    INPUT_CTL_PATH1);
+	mxc_iomux_set_pad(MX51_PIN_KEY_COL4,
+			  PAD_CTL_SRE_FAST |
+			  PAD_CTL_ODE_OPENDRAIN_ENABLE |
+			  PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+			  PAD_CTL_HYS_ENABLE);
+
+	/* MX51_PIN_EIM_D27 - De-assert USB PHY RESETB */
+	mxc_request_iomux(MX51_PIN_EIM_D27, IOMUX_CONFIG_ALT1);
+	mxc_iomux_set_pad(MX51_PIN_EIM_D27, PAD_CTL_DRV_HIGH |
+			  PAD_CTL_HYS_NONE | PAD_CTL_PUE_KEEPER |
+			  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE |
+			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D27), "usb_phy_resetb");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D27), 1);
+
+	/* hphone_det_b */
+	mxc_request_iomux(MX51_PIN_DISPB2_SER_RS, IOMUX_CONFIG_ALT4);
+	mxc_iomux_set_pad(MX51_PIN_DISPB2_SER_RS, PAD_CTL_100K_PU);
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_RS), "hphone_det_b");	
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_RS));
+
+	/* audio_clk_en_b */
+	mxc_request_iomux(MX51_PIN_CSPI1_RDY, IOMUX_CONFIG_ALT3);
+	mxc_iomux_set_pad(MX51_PIN_CSPI1_RDY, PAD_CTL_DRV_HIGH |
+			  PAD_CTL_HYS_NONE | PAD_CTL_PUE_KEEPER |
+			  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE |
+			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_CSPI1_RDY), "audio_clk_en_b");	
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_CSPI1_RDY), 0);
+
+	/* Deassert VGA reset to free i2c bus */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), "vga_reset");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A19), 1);
+
+	/* LCD related gpio */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), "lcd_gpio");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), 0);
+	
+	/* DVI Reset - Assert for i2c disabled mode */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), "dvi_reset");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
+
+	/* DVI Power-down */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), "dvi_power");
+	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 1);
+
+	//retrieve board id rev1.1: 1,1	rev1.2: 0,1    notice that this cannot be execute too early!
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0), "board_id1");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0));
+	board_id[0] = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0));
+
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1), "board_id2");
+	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1));
+	board_id[1] = gpio_get_value(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS1));
+
+	/* Watchdog */
+	/* board rev1.1: MX51_PIN_DI1_PIN13, rev1.2: MX51_PIN_GPIO1_4 */
+	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN13), "wdog_rst");
+	gpio_direction_input(MX51_PIN_DI1_PIN13);
+}
+
+#if 0
+/*!
+ * Exported function to set a LED on/off state
+ * @param type		0 WiFi, 1 Power On, 2 Sleep
+ * @param state		1 for LED on; 0 for LED off
+ */
+void imx51_efikamx_set_led(int type, int state)
+{
+	switch (type) {
+	case 0:
+		// WiFi LED
+		gpio_set_value(IOMUX_TO_GPIO(WLAN_LED_PIN)/* MX51_PIN_CSI1_D9 */, state);
+		break;
+	case 1:
+		// Power On LED
+		gpio_set_value(IOMUX_TO_GPIO(POWER_LED_PIN)/* MX51_PIN_CSI1_VSYNC */, state);
+		break;
+	case 2:
+		// Sleep LED
+		gpio_set_value(IOMUX_TO_GPIO(SLEEP_LED_PIN)/* MX51_PIN_CSI1_HSYNC */, state);
+		break;
+	default:
+		break;
+	}
+}
+EXPORT_SYMBOL(imx51_efikamx_set_led);
+#endif

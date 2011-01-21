@@ -1,0 +1,77 @@
+Genesi Efika MX
+Linux README
+
+Changes
+=======
+
+Jan 23 2010
+-----------
+* 2.6.31.12
+* Updated to Freescale BSP 5.2.0 (lots of non-iMX515 stuff here too)
+* Disabled SPDIF, accidentally enabled it in last release (doesn't work yet, use I2S instead)
+* DVI sink support, should work better on DVI monitors now
+* Better mode culling and use of the best monitor mode
+* vmode= flag works again
+* Patches from Pegatron
+  - DVI sink support (above) and CEA descriptor detection
+  - Altogether better handling of the SII9022 (still not up to spec though)
+  - PMIC reboot disabled (use mxc_reboot instead) should fix the shutdown-is-reboot problem
+  - max_res= flag will make the system use the biggest mode, 1280x720 or 1024x768 as fallbacks
+  - removed egregious hack from fbmem.c to adjust clocks and put it in a better place
+* ARM tree patches
+  - updates for ARMv6/ARMv7 prefetch abort handling
+  - remove that annoying migrate_pages warning on compile
+* ramzswap driver
+  - pulled from staging for 2.6.32
+  - updated ARM dcache handling if dirty bit set
+  - updated to compcache 0.6.2
+  
+
+Jan 07 2010
+-----------
+* 2.6.31.9
+* LED platform device and trigger support for ide-disk (PATA) and mmc (SD card)
+* A few GPIO setup optimizations nobody will notice (including that annoying error on boot)
+* Patches from Pegatron
+  - HDMI AV Information fix (wrong refresh rate)
+  - HDMI EDID support, should autodetect your panel and use a native mode
+  - Headphone detection fix
+  - Reboot workaround
+  - Board identification fix to differentiate between ER1 and ER2 (not shipping) boards
+  - Some regulator changes
+* Patches from SUSE
+  - ext3 fixes (superblock uptodate flag fix, barriers by default, JBD timeout increased to 15 seconds)
+  - XFS fixes (redirty delayed allocations fix)
+  - NFS write bug fix
+  - RT3070 driver backport from 2.6.32 staging
+  - USB storage devices delay 1 second instead of 5 when being plugged in
+  - USB UVC webcam hue fix
+* Slightly better HDMI mode autodetection and usage including cleaning up impossible modes
+* Enabled both the RT3070STA (Ralink/Staging) and RT2870 (Mainline) wireless drivers. Blacklist the one
+  that works the worst for you.
+* Disabled the Boot Logo
+  
+Dec 22 2009
+-----------
+* 2.6.31
+* Fixed cpu_wp values so correct voltage is being used
+
+Dec 18 2009
+-----------
+* 2.6.31
+* Patches from Pegatron to fix HDMI display support (AV Info header) for some TVs
+
+Sep 10 2009
+-----------
+* 2.6.28
+
+
+
+Bugs & TODO
+===========
+
+* Why doesn't the SPI NOR come up as an MTD? 
+  - hint, changing .modalias to "m25p80" makes the probe work but it nukes
+* Finally resolve reboot/shutdown problems
+* Can the blue LED be less blinding? IOMUX resistor setting?
+* Wireless, especially on N networks with encryption. Blame Ralink for now.

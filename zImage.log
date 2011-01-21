@@ -1,0 +1,31 @@
+  CHK     include/linux/version.h
+make[1]: `include/asm-arm/mach-types.h' не требует обновления.
+  CHK     include/linux/utsrelease.h
+  SYMLINK include/asm -> include/asm-arm
+  CALL    scripts/checksyscalls.sh
+  CHK     include/linux/compile.h
+  CC      arch/arm/mach-mx51/mx51_erdos.o
+  LD      arch/arm/mach-mx51/built-in.o
+  LD      vmlinux.o
+  MODPOST vmlinux.o
+  GEN     .version
+  CHK     include/linux/compile.h
+  UPD     include/linux/compile.h
+  CC      init/version.o
+  LD      init/built-in.o
+  LD      .tmp_vmlinux1
+  KSYM    .tmp_kallsyms1.S
+  AS      .tmp_kallsyms1.o
+  LD      .tmp_vmlinux2
+  KSYM    .tmp_kallsyms2.S
+  AS      .tmp_kallsyms2.o
+  LD      vmlinux
+  SYSMAP  System.map
+  SYSMAP  .tmp_System.map
+  OBJCOPY arch/arm/boot/Image
+  Kernel: arch/arm/boot/Image is ready
+  GZIP    arch/arm/boot/compressed/piggy.gz
+  AS      arch/arm/boot/compressed/piggy.o
+  LD      arch/arm/boot/compressed/vmlinux
+  OBJCOPY arch/arm/boot/zImage
+  Kernel: arch/arm/boot/zImage is ready

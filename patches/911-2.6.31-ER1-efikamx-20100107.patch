@@ -1,0 +1,466 @@
+diff -BburN linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c linux-2.6.31-ER1-efikamx.auto/arch/arm/mach-mx51/mx51_efikamx.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx.c	2010-01-07 14:32:41.072782059 -0600
++++ linux-2.6.31-ER1-efikamx.auto/arch/arm/mach-mx51/mx51_efikamx.c	2010-01-07 19:06:40.611634142 -0600
+@@ -68,13 +68,13 @@
+ 
+ int __initdata video_output = { VIDEO_OUT_STATIC_AUTO };
+ int __initdata video_mode = { VIDEO_MODE_HDMI_DEF };
+-int __initdata ce_mode = { VIDEO_MODE_HDMI_DEF };
+ int __initdata hdmi_audio = { 1 };
+ int __initdata enable_hdmi_spdif = { 1 }; // always on Efika MX
+ int __initdata clock_auto = { 1 };
+ char __initdata vmode[32] = { 0 };
+ int __initdata mxc_debug = { 1 };
+ int __initdata extsync = { 1 };
++struct fb_videomode __initdata mxcfb_preferred;
+ EXPORT_SYMBOL(hdmi_audio);
+ EXPORT_SYMBOL(enable_hdmi_spdif);
+ EXPORT_SYMBOL(clock_auto);
+@@ -83,7 +83,7 @@
+ EXPORT_SYMBOL(extsync);
+ EXPORT_SYMBOL(video_output);
+ EXPORT_SYMBOL(video_mode);
+-EXPORT_SYMBOL(ce_mode);
++
+ 
+ /*!
+  * @file mach-mx51/mx51_efikamx.c
+@@ -310,7 +309,7 @@
+ 	return 0;
+ }
+ 
+-void mxcfb_videomode_to_modelist(const struct fb_videomode *modedb, int num,
++void mxcfb_videomode_to_modelist(const struct fb_info *info, const struct fb_videomode *modedb, int num,
+ 			      struct list_head *head)
+ {
+ 	int i;
+@@ -335,7 +334,7 @@
+ 					 (modedb[i].vmode & FB_VMODE_INTERLACED)) == 0 &&
+ 					 ( modedb[i].flag & FB_MODE_IS_DETAILED ) ) {
+ 
+-					printk(KERN_INFO "%ux%u%s%u pclk=%u removed\n",
++					printk(KERN_INFO "%ux%u%s%u pclk=%u removed (duplicate)\n",
+ 						modelist->mode.xres, modelist->mode.yres, 
+ 						(modelist->mode.vmode & FB_VMODE_INTERLACED ) ? "i@" : "@",
+ 						modelist->mode.refresh,
+@@ -351,33 +350,94 @@
+ 	}
+ }
+ 
++void mxcfb_sanitize_modelist(const struct fb_info *info, const struct fb_videomode *modedb, int num,
++			      struct list_head *head)
++{
++	struct fb_videomode *pmode;
++	int i;
++
++	pmode = (struct fb_videomode *) fb_find_best_display(&info->monspecs, head);
++	if (pmode)
++	{
++		fb_dump_mode("PREFERRED", pmode);
++		memcpy((void *) &mxcfb_preferred, (const void *) pmode, sizeof(struct fb_videomode));
++	}
++
++	for (i = 0; i < num; i++) {
++
++		struct list_head *pos, *n;
++		struct fb_modelist *modelist;
++
++		list_for_each_safe(pos, n, head) {
++			modelist = list_entry(pos, struct fb_modelist, list);
++			if (PICOS2KHZ(modelist->mode.pixclock) > 133000 ) {
++				printk(KERN_INFO "%ux%u%s%u pclk=%u removed (pixclk higher than %lu limit)\n",
++					modelist->mode.xres, modelist->mode.yres,
++					(modelist->mode.vmode & FB_VMODE_INTERLACED ) ? "i@" : "@",
++					modelist->mode.refresh,
++					modelist->mode.pixclock, KHZ2PICOS(133000) );
++
++				if (0 == memcmp((void *) &mxcfb_preferred, (void *) &modelist->mode, sizeof(struct fb_videomode)))
++				{
++					printk(KERN_INFO "uh-oh! deleted preferred mode!\n");
++				}
++				list_del(pos);
++				kfree(pos);
++			}
++		}
++
++	}
++}
++
+ void mxcfb_update_default_var(struct fb_var_screeninfo *var, 
+ 									struct fb_info *info, 
+ 									const struct fb_videomode *def_mode )
+ {
+ 	struct fb_monspecs *specs = &info->monspecs;
+ 	const struct fb_videomode *mode = NULL;
+-	struct fb_var_screeninfo var_tmp;
++//	struct fb_var_screeninfo var_tmp;
+ 	int modeidx = 0;
+ 	
+ 	printk(KERN_INFO "%s mode_opt=%s vmode=%s\n", __func__ , fb_mode_option, vmode );
+ 
++	fb_dump_mode("preferred mode", &mxcfb_preferred);
++
+ 	/* user specified vmode,  ex: support reduce blanking, such as 1280x768MR-16@60 */
+-	if ( vmode[0] ) {	
++//	if ( vmode[0] ) {
+ 		/* use edid support modedb or modedb in modedb.c */
+-		modeidx = fb_find_mode(var, info, vmode, specs->modedb, specs->modedb_len, def_mode, 16);
+-	}
+-	else if ( specs->modedb ) {
+-
++//		modeidx = fb_find_mode(var, info, vmode, specs->modedb, specs->modedb_len, def_mode, 16);
++//	}
++/*	else */if ( specs->modedb != NULL) {
++#if 0
+ 		fb_videomode_to_var( &var_tmp, def_mode);
+ 		mode = fb_find_nearest_mode( def_mode, &info->modelist );
++#else
++		mode = fb_find_best_display(specs, &info->modelist);
++#endif
+ 
+ 		if ( mode ) {
+ 			fb_videomode_to_var(var, mode);
+-			printk(KERN_INFO "%ux%u@%u pclk=%u nearest mode is %ux%u@%u pclk=%u\n",
+-				def_mode->xres, def_mode->yres, def_mode->refresh, def_mode->pixclock,
++			printk(KERN_INFO "best mode is %ux%u@%u pclk=%u\n",
++				mode->xres, mode->yres, mode->refresh, mode->pixclock );
++			fb_dump_mode("best mode", mode);
++		} else {
++			mode = fb_find_nearest_mode( &mxcfb_preferred, &info->modelist );
++			if ( mode ) {
++				fb_videomode_to_var(var, mode);
++				printk(KERN_INFO "nearest mode (%ux%u@%u pclk=%u) is %ux%u@%u pclk=%u\n",
++					mxcfb_preferred.xres, mxcfb_preferred.yres, mxcfb_preferred.refresh, mxcfb_preferred.pixclock,
+ 				mode->xres, mode->yres, mode->refresh, mode->pixclock );
+ 			fb_dump_mode("nearest mode", mode);
++			} else {
++				mode = fb_find_nearest_mode( def_mode, &info->modelist );
++				if ( mode ) {
++					fb_videomode_to_var(var, mode);
++					printk(KERN_INFO "nearest default (%ux%u@%u pclk=%u) is %ux%u@%u pclk=%u\n",
++						def_mode->xres, def_mode->yres, def_mode->refresh, def_mode->pixclock,
++						mode->xres, mode->yres, mode->refresh, mode->pixclock );
++					fb_dump_mode("nearest default", mode);
++				}
++			}
+ 		}
+ 	}
+ 
+@@ -382,12 +442,9 @@
+ 	}
+ 
+ 	if ( modeidx == 0 && mode == NULL ) { /* no best monitor support mode timing found, use def_video_mode timing ! */
+-
+ 		fb_videomode_to_var(var, def_mode);
+-	}
+-
+ 	fb_dump_var( __func__, var );
+-	
++	}
+ }
+ 
+ int handle_edid2(struct i2c_adapter *adp, char *buffer, u16 len)
+@@ -483,8 +540,8 @@
+ 	
+ 	mxc_fb_initialized = 1;
+ 	
+-	printk("*** %s vmode=%s video-mode=%d ce-mode=%d clock_auto=%d\n", 
+-		  __func__, vmode, video_mode, ce_mode, clock_auto);
++	printk("*** %s vmode=%s video-mode=%d clock_auto=%d\n", 
++		  __func__, vmode, video_mode, clock_auto);
+ 
+ 		(void)platform_device_register(&mxc_fb_device[0]);	// HDMI
+ 	//(void)platform_device_register(&mxc_fb_device[1]);	// VGA
+@@ -496,7 +553,6 @@
+ static int __init hdmi_setup(char *__unused)
+ {
+ 	video_mode = VIDEO_MODE_HDMI_DEF; /* default cea mode */
+-	ce_mode = video_mode;
+ 	video_output = VIDEO_OUT_STATIC_HDMI;	
+ 	return 1;
+ }
+@@ -507,25 +563,12 @@
+ 	return 1;
+ }
+ 
+-static int __init hdmi_ce_mode_setup(char *options)
+-{
+-	if (!options || !*options)
+-		return 1;
+-
+-	ce_mode = simple_strtol(options, NULL, 10);
+-
+-	printk("ce_mode=%d\n", ce_mode);
+-
+-	return 1;
+-}
+-
+ static int __init video_mode_setup(char *options)
+ {
+ 	if (!options || !*options)
+ 		return 1;
+ 
+ 	video_mode = simple_strtol(options, NULL, 10);
+-	ce_mode = video_mode;
+ 	
+ 	printk("video mode=%d\n", video_mode);
+ 
+@@ -557,7 +600,6 @@
+ 
+ __setup("hdmi", hdmi_setup);
+ __setup("spdif", hdmi_spdif_setup);
+-__setup("ce_mode=", hdmi_ce_mode_setup);
+ __setup("video_mode=", video_mode_setup);
+ __setup("clock_auto=", clock_setup);
+ __setup("vmode=", vmode_setup);
+@@ -649,8 +691,19 @@
+ #endif
+ 
+ #if defined(CONFIG_MTD) || defined(CONFIG_MTD_MODULE)
++
++static struct mtd_partition mxc_spi_nor_partitions[] = {
++	{
++	 .name = "flash",
++	 .offset = 0,
++	 .size = MTDPART_SIZ_FULL,
++	},
++};
++
+ static struct flash_platform_data mxc_spi_flash_data = {
+-	.name = "mxc_spi_nor",
++	.name = "m25p80",
++	.parts = mxc_spi_nor_partitions,
++	.nr_parts = ARRAY_SIZE(mxc_spi_nor_partitions),
+ 	.type = "sst25vf032b",
+ };
+ #endif
+@@ -831,6 +884,7 @@
+ 
+ static void mxc_init_sgtl5000(void)
+ {
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_A23), "amp_enable");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_A23), 0);
+ 
+ 	platform_device_register(&mxc_sgtl5000_device);
+@@ -927,10 +981,6 @@
+ int mxc_reboot(void)
+ {
+ 	/* wdog reset workaround, result power reset! */
+-
+-	if ( board_id[0] == 0 && board_id[1] == 1 ) /* board rev1.2 */
+-		gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_GPIO1_4), 0);
+-	else if ( board_id[0] == 1 && board_id[1] == 1 ) /* board rev1.1 */
+ 		gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN13), 0);
+ 
+ 	return 0;
+@@ -953,8 +1003,8 @@
+ 	/* 		(PWGT1SPIEN|PWGT2SPIEN)); */
+ 	//robin: CLR_DFF
+ 	mxc_request_iomux(MX51_PIN_CSI2_VSYNC, IOMUX_CONFIG_GPIO);
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_CSI2_VSYNC), "reset_thingy");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_CSI2_VSYNC), 0);
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_CSI2_VSYNC), 0);
+ 	msleep(10);
+ 	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_CSI2_VSYNC), 1);
+ }
+@@ -1162,7 +1212,6 @@
+ 
+ 			len +=sprintf(procfs_buffer+len, "----HDMI-----\n");
+ 			len +=sprintf(procfs_buffer+len, "video_mode	= %d\n", video_mode );
+-			len +=sprintf(procfs_buffer+len, "ce_mode		= %d\n", ce_mode );
+ 			len +=sprintf(procfs_buffer+len, "audio 		= %d\n", hdmi_audio);
+ 			len +=sprintf(procfs_buffer+len, "spdif		= %d\n", enable_hdmi_spdif);
+ 
+diff -BburN linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_gpio.c linux-2.6.31-ER1-efikamx.auto/arch/arm/mach-mx51/mx51_efikamx_gpio.c
+--- linux-2.6.31-ER1-efikamx/arch/arm/mach-mx51/mx51_efikamx_gpio.c	2010-01-07 14:32:41.100680586 -0600
++++ linux-2.6.31-ER1-efikamx.auto/arch/arm/mach-mx51/mx51_efikamx_gpio.c	2010-01-07 18:52:54.000000000 -0600
+@@ -202,14 +202,6 @@
+ 	 },
+ 	*/
+ 	{
+-	 MX51_PIN_I2C1_CLK, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+-	 0x1E4,
+-	 },
+-	{
+-	 MX51_PIN_I2C1_DAT, IOMUX_CONFIG_ALT0 | IOMUX_CONFIG_SION,
+-	 0x1E4,
+-	 },
+-	{
+ 	 MX51_PIN_GPIO1_2, IOMUX_CONFIG_ALT2 | IOMUX_CONFIG_SION,
+ 	 (PAD_CTL_SRE_FAST | PAD_CTL_ODE_OPENDRAIN_ENABLE | PAD_CTL_DRV_HIGH |
+ 	  PAD_CTL_100K_PU | PAD_CTL_HYS_ENABLE),
+@@ -375,17 +367,6 @@
+ 	 },
+ 	/*
+ 	{
+-	 MX51_PIN_GPIO1_5, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+-	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+-	 },
+-	
+-	{     //ron: USB Hub Reset
+-	  MX51_PIN_GPIO1_5, IOMUX_CONFIG_ALT0,
+-	  (PAD_CTL_DRV_HIGH | PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST),
+-	},
+-	*/
+-	/*
+-	{
+ 	 MX51_PIN_GPIO1_6, IOMUX_CONFIG_GPIO | IOMUX_CONFIG_SION,
+ 	 (PAD_CTL_HYS_ENABLE | PAD_CTL_100K_PU),
+ 	 },
+@@ -621,7 +602,7 @@
+ 	},
+ 	{
+ 		.name = "efikamx:blue:sdhc",
+-		.default_trigger = "mmc0",
++		.default_trigger = "mmc1",
+ 		.gpio = IOMUX_TO_GPIO(WLAN_LED_PIN),
+ 	},
+ };
+@@ -737,7 +718,6 @@
+ 	msleep(10);
+ 	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_EIM_A16), 1);
+ 
+-	mxc_free_iomux(MX51_PIN_EIM_D21, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_EIM_A24, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_EIM_A25, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_EIM_D18, IOMUX_CONFIG_ALT2);
+@@ -751,26 +731,6 @@
+ 	mxc_free_iomux(MX51_PIN_GPIO1_3, IOMUX_CONFIG_ALT2);
+ 	mxc_free_iomux(MX51_PIN_EIM_LBA, IOMUX_CONFIG_GPIO);
+ 
+-	/* i2c1 SDA */
+-	mxc_request_iomux(MX51_PIN_EIM_D16,
+-			  IOMUX_CONFIG_ALT4 | IOMUX_CONFIG_SION);
+-	mxc_iomux_set_input(MUX_IN_I2C1_IPP_SDA_IN_SELECT_INPUT,
+-			    INPUT_CTL_PATH1);
+-	mxc_iomux_set_pad(MX51_PIN_EIM_D16, PAD_CTL_SRE_FAST |
+-			  PAD_CTL_ODE_OPENDRAIN_ENABLE |
+-			  PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+-			  PAD_CTL_HYS_ENABLE);
+-
+-	/* i2c1 SCL */
+-	mxc_request_iomux(MX51_PIN_EIM_D19,
+-			  IOMUX_CONFIG_ALT4 | IOMUX_CONFIG_SION);
+-	mxc_iomux_set_input(MUX_IN_I2C1_IPP_SCL_IN_SELECT_INPUT,
+-			    INPUT_CTL_PATH1);
+-	mxc_iomux_set_pad(MX51_PIN_EIM_D19, PAD_CTL_SRE_FAST |
+-			  PAD_CTL_ODE_OPENDRAIN_ENABLE |
+-			  PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+-			  PAD_CTL_HYS_ENABLE);
+-
+ 	/* i2c2 SDA */
+ 	mxc_request_iomux(MX51_PIN_KEY_COL5,
+ 			  IOMUX_CONFIG_ALT3 | IOMUX_CONFIG_SION);
+@@ -793,37 +753,20 @@
+ 			  PAD_CTL_DRV_HIGH | PAD_CTL_100K_PU |
+ 			  PAD_CTL_HYS_ENABLE);
+ 
+-	/* Drive 26M_OSC_EN line high */
+-	mxc_request_iomux(MX51_PIN_DI1_PIN12, IOMUX_CONFIG_ALT4);
+-	mxc_iomux_set_pad(MX51_PIN_DI1_PIN12, PAD_CTL_DRV_HIGH |
+-			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+-	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), "26mhz_osc_en");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_PIN12), 1);
+-
+-	/* Drive USB_CLK_EN_B line low */
+-	mxc_request_iomux(MX51_PIN_EIM_D17, IOMUX_CONFIG_ALT1);
+-	mxc_iomux_set_pad(MX51_PIN_EIM_D17, PAD_CTL_DRV_HIGH |
+-			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+-	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D17), "usb_clk_en_b");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D17), 0);
+-
+-	/* MX51_PIN_EIM_D21 - De-assert USB PHY RESETB */
+-	mxc_request_iomux(MX51_PIN_EIM_D21, IOMUX_CONFIG_ALT1);
+-	mxc_iomux_set_pad(MX51_PIN_EIM_D21, PAD_CTL_DRV_HIGH |
++	/* MX51_PIN_EIM_D27 - De-assert USB PHY RESETB */
++	mxc_request_iomux(MX51_PIN_EIM_D27, IOMUX_CONFIG_ALT1);
++	mxc_iomux_set_pad(MX51_PIN_EIM_D27, PAD_CTL_DRV_HIGH |
+ 			  PAD_CTL_HYS_NONE | PAD_CTL_PUE_KEEPER |
+ 			  PAD_CTL_100K_PU | PAD_CTL_ODE_OPENDRAIN_NONE |
+ 			  PAD_CTL_PKE_ENABLE | PAD_CTL_SRE_FAST);
+-	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), "usb_phy_resetb");
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D21), 1);
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_EIM_D27), "usb_phy_resetb");
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_EIM_D27), 1);
+ 
+ 	/* hphone_det_b */
+ 	mxc_request_iomux(MX51_PIN_DISPB2_SER_RS, IOMUX_CONFIG_ALT4);
+ 	mxc_iomux_set_pad(MX51_PIN_DISPB2_SER_RS, PAD_CTL_100K_PU);
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_RS), "hphone_det_b");	
+ 	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_RS));
+-	//mxc_request_iomux(MX51_PIN_NANDF_D14, IOMUX_CONFIG_ALT3);
+-	//mxc_iomux_set_pad(MX51_PIN_NANDF_D14, PAD_CTL_100K_PU);
+-	//gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_NANDF_D14));
+ 
+ 	/* audio_clk_en_b */
+ 	mxc_request_iomux(MX51_PIN_CSPI1_RDY, IOMUX_CONFIG_ALT3);
+@@ -842,16 +785,13 @@
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), "lcd_gpio");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DI1_D1_CS), 0);
+ 	
+-	/* Watchdog */
+-	gpio_direction_input(MX51_PIN_DI1_PIN13);
+-
+ 	/* DVI Reset - Assert for i2c disabled mode */
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), "dvi_reset");
+ 	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIN), 0);
+ 
+ 	/* DVI Power-down */
+-	gpio_set_value(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 1);
+-	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 0);
++	gpio_request(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), "dvi_power");
++	gpio_direction_output(IOMUX_TO_GPIO(MX51_PIN_DISPB2_SER_DIO), 1);
+ 
+ 	//retrieve board id rev1.1: 1,1	rev1.2: 0,1    notice that this cannot be execute too early!
+ 	gpio_request(IOMUX_TO_GPIO(MX51_PIN_NANDF_CS0), "board_id1");
+diff -BburN linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c linux-2.6.31-ER1-efikamx.auto/drivers/video/mxc/mxcfb_sii9022.c
+--- linux-2.6.31-ER1-efikamx/drivers/video/mxc/mxcfb_sii9022.c	2010-01-07 14:32:41.144774759 -0600
++++ linux-2.6.31-ER1-efikamx.auto/drivers/video/mxc/mxcfb_sii9022.c	2010-01-07 14:25:29.000000000 -0600
+@@ -52,9 +52,10 @@
+ extern void mxcfb_update_default_var(struct fb_var_screeninfo *var, 
+ 									struct fb_info *info, 
+ 									const struct fb_videomode *def_video_mode );
+-void mxcfb_videomode_to_modelist(const struct fb_videomode *modedb, int num,
++extern void mxcfb_videomode_to_modelist(const struct fb_info *info, const struct fb_videomode *modedb, int num,
++			      struct list_head *head);
++extern void mxcfb_sanitize_modelist(const struct fb_info *info, const struct fb_videomode *modedb, int num,
+ 			      struct list_head *head);
+-
+ extern int (*sii9022_func)( const char *procfs_buffer );
+ 
+ #define HDMI_VMODE_DEFAULT	"1280x720-16@60"
+@@ -669,8 +670,11 @@
+ 			fb_dump_modeline( info->monspecs.modedb, info->monspecs.modedb_len );
+ 
+ 		
+-			mxcfb_videomode_to_modelist(info->monspecs.modedb, info->monspecs.modedb_len,
++			mxcfb_videomode_to_modelist(info, info->monspecs.modedb, info->monspecs.modedb_len,
+ 							 &info->modelist);
++			mxcfb_sanitize_modelist(info, info->monspecs.modedb, info->monspecs.modedb_len,
++							 &info->modelist);
++
+ 		}
+ 	}
+ 	/*
+@@ -679,6 +683,7 @@
+ 	  * else find 720p timing from modelist.
+ 	  * modelist is generated from edid. if no edid, use modedb in modedb.c
+ 	  */
++#if 0
+ 	if( video_mode == 4 )
+ 		fb_videomode_to_var(&var, &video_modes_ce_mode_4);
+ 
+@@ -692,9 +697,9 @@
+ 		fb_videomode_to_var(&var, &video_modes_1280x720_65);
+ 	
+ 	else {
+-
+-		mxcfb_update_default_var( &var, info, &video_modes_ce_mode_4 );
+-	}
++#endif
++		mxcfb_update_default_var( &var, info, &video_modes_1024x768_60 );
++//	}
+ 
+ 	mxcfb_di_clock_adjust( video_output, var.pixclock );
+ 

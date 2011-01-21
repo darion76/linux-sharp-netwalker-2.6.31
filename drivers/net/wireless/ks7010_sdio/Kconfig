@@ -1,0 +1,7 @@
+config KS7010_SDIO
+	tristate "Driver for KeyStream 11b/g wireless LAN cards."
+	depends on WIRELESS
+	---help---
+	  This module adds support for wireless adapters based on
+	  KeyStream 7010 chipset.
+
