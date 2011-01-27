@@ -40,6 +40,7 @@
 #endif
 #include <mach/mx51_erdos_dev_params.h>
 #include <linux/pmic_light.h>
+#include <linux/workqueue.h>
 
 #if defined(CONFIG_MMC_IMX_ESDHCI) || defined(CONFIG_MMC_IMX_ESDHCI_MODULE)
 
