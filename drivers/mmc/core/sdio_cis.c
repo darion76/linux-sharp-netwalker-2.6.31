@@ -110,7 +110,7 @@ static int cistpl_funce_common(struct mmc_card *card,
 	/* TPLFE_MAX_TRAN_SPEED */
 	card->cis.max_dtr = speed_val[(buf[3] >> 3) & 15] *
 			    speed_unit[buf[3] & 7];
-	if(card->cis.max_dtr > 25000000 & card->cccr.sdio_vsn < SDIO_SDIO_REV_2_00)
+	if((card->cis.max_dtr > 25000000) & (card->cccr.sdio_vsn < SDIO_SDIO_REV_2_00))
 	    card->cis.max_dtr = 25000000;
 
 	return 0;

@@ -1192,7 +1192,7 @@ void __init mx51_erdos_io_init(void)
 }
 
 static volatile int gpio_wlan_initialized = 0;	/* gpio_wlan_init() call mark */
-int __init gpio_wlan_start(void)
+int gpio_wlan_start(void)
 {
 	int i;
 	static int iomux_requested = 0;
@@ -1248,7 +1248,7 @@ int __init gpio_wlan_start(void)
 
 	return (0);
 }
-//EXPORT_SYMBOL(gpio_wlan_start);
+EXPORT_SYMBOL(gpio_wlan_start);
 
 void gpio_wlan_stop(void)
 {

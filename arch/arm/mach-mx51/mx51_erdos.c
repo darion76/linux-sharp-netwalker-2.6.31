@@ -940,7 +940,7 @@ static void __init mxc_board_init(void)
 	mxc_init_power_off();
 	printk("darion: mxc_init_sgtl5000 started\n");
 	mxc_init_sgtl5000();
-//	printk("darion: mxc_init_oj6sh started\n");
+	//	printk("darion: mxc_init_oj6sh started\n");
 //	mxc_init_oj6sh();
 //	mxc_init_gpio_sw();
 //	mxc_init_mxc_etk();

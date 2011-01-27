@@ -59,7 +59,7 @@ static struct work_struct sdio_detect_change_task_for_proc;
 #if defined(CONFIG_MTD) || defined(CONFIG_MTD_MODULE)
 extern void esdhc_foce_cd_local(int id);
 #endif
-//extern int gpio_wlan_start(void);
+extern int gpio_wlan_start(void);
 extern void gpio_wlan_stop(void);
 
 extern void mxc_mmc_force_detect(int id);
@@ -218,7 +218,7 @@ static void sdio_detect_change(struct work_struct *work)
 	sdio_detect_enable = ~(sdio_detect_enable) & 0x1;
 
 	if (sdio_detect_enable) {
-//		gpio_wlan_start();
+		gpio_wlan_start();
 	}
 
 	sdio_detect_led();
@@ -236,7 +236,7 @@ static void sdio_detect_change(struct work_struct *work)
 #endif
 
 	if (!sdio_detect_enable) {
-//		gpio_wlan_stop();
+		gpio_wlan_stop();
 	}
 
 	mutex_unlock(&sdio_detect_mutex);
@@ -253,7 +253,7 @@ void sdio_detect_disable_force(void)
 	sdio_detect_led();
 
 #if defined(CONFIG_MTD) || defined(CONFIG_MTD_MODULE)
-//	esdhc_foce_cd_local(1); //darion76
+	esdhc_foce_cd_local(1); //darion76
 
 	ret = mx51_erdos_dev_params_write(DEV_PARAMS_OFFSET_WLAN,
 					  DEV_PARAMS_SIZE_WLAN,
@@ -264,7 +264,7 @@ void sdio_detect_disable_force(void)
 			__FUNCTION__, __LINE__);
 #endif
 
-//	gpio_wlan_stop();
+	gpio_wlan_stop();
 
 	mutex_unlock(&sdio_detect_mutex);
 }
@@ -278,7 +278,7 @@ static void sdio_detect_change_no_write(struct work_struct *work)
 	sdio_detect_enable = ~(sdio_detect_enable) & 0x1;
 
 	if (sdio_detect_enable) {
-//		gpio_wlan_start();
+		gpio_wlan_start();
 	}
 
 	sdio_detect_led();
@@ -286,7 +286,7 @@ static void sdio_detect_change_no_write(struct work_struct *work)
 	mxc_mmc_force_detect(1);
 
 	if (!sdio_detect_enable) {
-//		gpio_wlan_stop();
+		gpio_wlan_stop();
 	}
 
 	mutex_unlock(&sdio_detect_mutex);
@@ -312,7 +312,7 @@ static void wlan_fnkey_handler(int id, int value, void *arg)
 int sdio_detect_suspend(struct sys_device *dev, pm_message_t state)
 {
 	if (sdio_detect_enable) {
-//		gpio_wlan_stop();
+		gpio_wlan_stop();
 	}
 
 	return 0;
@@ -321,7 +321,7 @@ int sdio_detect_suspend(struct sys_device *dev, pm_message_t state)
 static int sdio_detect_resume(struct sys_device *dev)
 {
 	if (sdio_detect_enable) {
-//		gpio_wlan_start();
+		gpio_wlan_start();
 		printk(KERN_INFO "SDIO detect resumed.\n");
 	}
 
@@ -393,7 +393,7 @@ static int sdio_detect_late_init(void)
 	   device parameter = "ON" AND now detect status = "OFF" */
 	if (sdio_detect_enable == 1) {
 		sdio_detect_led();
-//		gpio_wlan_start();
+		gpio_wlan_start();
 		mxc_mmc_force_detect(1);
 	} else {
 		sdio_detect_enable = 0;
