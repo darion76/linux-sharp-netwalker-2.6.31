@@ -1055,47 +1055,6 @@ void __init mx51_erdos_io_init(void)
 	int i;
 	struct mxc_iomux_pin_cfg *tbl;
 
-	enum iomux_pins gpios[] = {
-		MX51_PIN_CSI1_D9,
-		MX51_PIN_CSI1_HSYNC,
-		MX51_PIN_CSI1_VSYNC,
-		MX51_PIN_CSI2_D12,
-		MX51_PIN_CSI2_D13,
-		MX51_PIN_CSI2_D19,
-		MX51_PIN_CSPI1_RDY,
-		MX51_PIN_DISPB2_SER_CLK,
-		MX51_PIN_DISPB2_SER_CLK,
-		MX51_PIN_DISPB2_SER_CLK,
-		MX51_PIN_DISPB2_SER_DIO,
-		MX51_PIN_DI1_D0_CS,
-		MX51_PIN_DI1_PIN12,
-		MX51_PIN_EIM_A19,
-		MX51_PIN_EIM_A21,
-		MX51_PIN_EIM_A23,
-		MX51_PIN_EIM_A25,
-		MX51_PIN_EIM_A27,
-		MX51_PIN_EIM_D17,
-		MX51_PIN_EIM_D20,
-		MX51_PIN_EIM_D21,
-		MX51_PIN_EIM_D22,
-		MX51_PIN_EIM_D23,
-		MX51_PIN_EIM_EB2,
-		MX51_PIN_EIM_EB3,
-		MX51_PIN_GPIO_NAND,
-		MX51_PIN_GPIO1_0,
-		MX51_PIN_GPIO1_7,
-		MX51_PIN_GPIO1_7,
-		MX51_PIN_GPIO1_7,
-		MX51_PIN_GPIO1_8,
-		MX51_PIN_NANDF_D10,
-		MX51_PIN_NANDF_D12,
-		MX51_PIN_NANDF_D13,
-		MX51_PIN_NANDF_D14,
-		MX51_PIN_NANDF_D15,
-	};
-
-	for (i = 0; i < ARRAY_SIZE(gpios); i++)
-		gpio_request(IOMUX_TO_GPIO(gpios[i]), "init");
 	/*
 	 * USB HUB RESET-OFF
 	 *  Output data setting before IOMUX setting.
@@ -1230,9 +1189,6 @@ void __init mx51_erdos_io_init(void)
 
 	/* Power Switch pin config */
 	gpio_direction_input(IOMUX_TO_GPIO(MX51_PIN_EIM_A27));
-
-	for (i = 0; i < ARRAY_SIZE(gpios); i++)
-		gpio_free(IOMUX_TO_GPIO(gpios[i]));
 }
 
 static volatile int gpio_wlan_initialized = 0;	/* gpio_wlan_init() call mark */
